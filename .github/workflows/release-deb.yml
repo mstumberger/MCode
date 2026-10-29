@@ -1,31 +1,83 @@
-# Build the Linux .deb on every published release and attach it to the release.
-# Packaging entry is the repo's own bundle wrapper (prepare runtime assets →
-# production build → electron-builder with mirror + closure verification).
-name: release-deb
+# Manual one-shot release: provide the version, CI does the rest.
+#
+#   Run workflow -> version (e.g. 3.16.3-m1)
+#
+# Validates the version, bumps package.json files, commits, tags and creates
+# the GitHub Release, then builds the Linux .deb and attaches it to that
+# release. No manual tag/release creation needed.
+name: Release CI (deb)
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       version:
-        description: "Package version (e.g. 3.16.3-m1); ignored on release runs, where the tag is used"
+        description: "Version to release (e.g. 3.16.3-m1)"
         required: true
-        default: "0.0.0-dev"
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-deb-${{ github.ref }}
+  group: release-deb
   cancel-in-progress: false
 
 jobs:
-  build-deb:
+  release:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      - name: Validate version format
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+            echo "::error::Invalid version '$VERSION'. Expected e.g. 3.16.3 or 3.16.3-m1"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git user
+        run: |
+          git config user.email "marko@stumberger.si"
+          git config user.name "Marko Štumberger"
+
+      - name: Check tag does not already exist
+        run: |
+          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::Tag v${{ inputs.version }} already exists"
+            exit 1
+          fi
+
+      - name: Bump package versions
+        run: |
+          for file in package.json packages/desktop/package.json; do
+            tmp="$(mktemp)"
+            jq --arg v "${{ inputs.version }}" '.version = $v' "$file" > "$tmp" && mv "$tmp" "$file"
+            grep -m1 '"version"' "$file"
+          done
+
+      - name: Commit and tag release
+        run: |
+          git add package.json packages/desktop/package.json
+          git commit -m "release: v${{ inputs.version }} [skip ci]"
+          git tag "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
+
+      - name: Push commit and tag
+        run: |
+          git push origin HEAD
+          git push origin "v${{ inputs.version }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
+            --generate-notes \
+            --repo "${{ github.repository }}"
 
       - uses: pnpm/action-setup@v4
         # reads the packageManager field (pnpm@10.33.2)
@@ -38,29 +90,36 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve package version (release tag without leading v)
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
       - name: Build Linux .deb
         working-directory: packages/desktop
         env:
           ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
           # config builds AppImage/deb/rpm/pacman by default; we only ship .deb
           ZCODE_BUILDER_TARGETS: deb
-          # single source of truth for the package version is the release tag
-          ZCODE_BUILDER_VERSION: ${{ github.event_name == 'release' && steps.version.outputs.version || inputs.version }}
+          # same value the package.json was just bumped to — keeps name and
+          # dpkg version consistent even if injection and bump ever diverge
+          ZCODE_BUILDER_VERSION: ${{ inputs.version }}
         run: pnpm bundle --os linux --arch x64
 
       - name: Upload .deb as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mcode-linux-deb
+          name: mcode-linux-deb-v${{ inputs.version }}
           path: packages/desktop/dist/*.deb
           if-no-files-found: error
 
       - name: Attach .deb to the release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: packages/desktop/dist/*.deb
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v${{ inputs.version }}" \
+            packages/desktop/dist/*.deb \
+            --repo "${{ github.repository }}" --clobber
+
+      - name: Summary
+        run: |
+          {
+            echo "### 🚀 Release v${{ inputs.version }}"
+            echo "- Tag: \`v${{ inputs.version }}\`"
+            echo "- Asset: \`$(ls packages/desktop/dist/*.deb)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
