@@ -3,7 +3,9 @@
  * 默认请求 opus（OGG/Opus 容器）以匹配 Telegram sendVoice 的要求。
  * 未配置时任务完成只发文本，行为不变。
  */
-const SPEECH_TIMEOUT_MS = 30_000;
+// Bugfix：CPU 上 OmniVoice 合成耗时约为语速的 2 倍（~560 字符 ≈ 80-100s），
+// 30s 超时会让正常长度的摘要全部中止，语音回复永远发不出去。放宽到 5 分钟。
+const SPEECH_TIMEOUT_MS = 300_000;
 const SPEECH_INPUT_MAX_CHARS = 4000;
 
 export interface BotTtsConfig {

@@ -5,7 +5,9 @@
  */
 import type { BotInboundAttachment } from "@zcode/shared";
 
-const AUDIO_TRANSCRIPTION_TIMEOUT_MS = 30_000;
+// Bugfix：CPU 上 large-v3 转写远慢于实时（~43s 音频需要 30-60s+），30s 超时
+// 会让较长的语音消息全部中止并静默降级为纯附件。放宽到 5 分钟与 TTS 对齐。
+const AUDIO_TRANSCRIPTION_TIMEOUT_MS = 300_000;
 
 export interface BotSttConfig {
   baseUrl: string;

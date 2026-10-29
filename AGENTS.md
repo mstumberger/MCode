@@ -36,6 +36,7 @@ affected 使用 Vitest 官方选择，只运行选中的根 UT；选中整个套
 - `apps/zcode-cli`：Agent CLI 与运行时。
 - `CONTEXT.md`：插件商店领域词汇；修改相关 UI 前阅读。
 - `DESIGN.md`：UI 设计规范；修改 UI 前阅读。
+- `docs/bots-voice-stt-voicestudio.md`：Bot 语音转文字（STT）的本地 VoiceStudio 部署与接线文档。涉及 `ZCODE_BOT_STT_*` 环境变量、语音消息处理或 3900 端口容器时先阅读；可按其中 runbook 从零重建。
 
 ## 实现与验证
 

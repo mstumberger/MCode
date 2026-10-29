@@ -6181,15 +6181,33 @@ export function createBotsService(
         }
         // 可选语音摘要：bot 显式开启 voiceSummary 且配置了 TTS 后端时，在完成文本后追加一条语音。
         const sendCompletionVoiceSummary = async (summaryText: string): Promise<void> => {
+          // 排障可观测性：记录进入条件与跳过原因，此前所有失败路径均静默，
+          // 无法区分“完成事件未触发”“开关未开”与“合成失败”。
           if (context.group || bot.voiceSummary !== true || bot.provider !== "telegram") {
+            botsLogger.warn(
+              undefined,
+              `voice summary guard rejected: group=${Boolean(context.group)} voiceSummary=${String(bot.voiceSummary)} provider=${bot.provider}`,
+            );
             return;
           }
           const ttsConfig = readBotTtsConfig(process.env);
           if (!ttsConfig) {
+            // 排障可观测性：此前所有失败路径均静默，无法区分“未触发”与“合成失败”。
+            botsLogger.warn(undefined, "voice summary skipped: TTS backend not configured");
             return;
           }
-          const audio = await synthesizeSpeech(ttsConfig, summaryText).catch(() => null);
+          const audio = await synthesizeSpeech(ttsConfig, summaryText).catch((error: unknown) => {
+            botsLogger.warn(
+              undefined,
+              `voice summary synthesis failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            return null;
+          });
           if (!audio || audio.byteLength === 0) {
+            botsLogger.warn(
+              undefined,
+              `voice summary skipped: empty synthesis result (input ${summaryText.trim().length} chars)`,
+            );
             return;
           }
           const extension = ttsConfig.format === "opus" ? "ogg" : ttsConfig.format;
@@ -6219,7 +6237,18 @@ export function createBotsService(
           sentAnyAssistantReply = true;
           await sendTaskOutbound(bot, createOutbound(actor, text));
         }
-        await sendCompletionVoiceSummary(replyMessages.join("\n\n"));
+        // Bugfix：assistant_changes 模式下正文已随流式分段发出，完成时 replyMessages 为空，
+        // 语音摘要拿到空串会被 synthesizeSpeech 静默跳过（TTS 请求根本不会发出）。
+        // 回退使用本轮 assistant content 拼出的正文作为语音文本。
+        const streamedAssistantText = assistantParts
+          .filter(
+            (part): part is Extract<ZCodeAssistantMessagePart, { type: "content" }> =>
+              part.type === "content",
+          )
+          .map((part) => part.content)
+          .join("")
+          .trim();
+        await sendCompletionVoiceSummary(replyMessages.join("\n\n") || streamedAssistantText);
       }
     };
     const handleStreamEvent = async (
