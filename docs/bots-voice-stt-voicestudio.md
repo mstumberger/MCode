@@ -20,7 +20,7 @@ Telegram voice note (.ogg/Opus)
 Code entry points:
 
 - `packages/services/src/bots/audioTranscription.ts` - env config (`readBotSttConfig`) and the HTTP call (`transcribeAudioAttachment`). All three `ZCODE_BOT_STT_*` values are required or transcription is silently skipped and audio passes through as a plain attachment.
-- `packages/services/src/bots/botsService.ts` - calls transcription per inbound audio attachment; 30 s hard timeout (`AUDIO_TRANSCRIPTION_TIMEOUT_MS`) on the fetch.
+- `packages/services/src/bots/botsService.ts` - calls transcription per inbound audio attachment; 300 s hard timeout (`AUDIO_TRANSCRIPTION_TIMEOUT_MS`) on the fetch.
 - `packages/services/src/bots/providers/telegramProvider.ts` - produces the `telegram-voice.ogg` attachment and downloads it via `getFile`.
 
 ### TTS (voice summary reply)
@@ -39,7 +39,12 @@ task completes
       caption "Task summary (voice)")
 ```
 
-Code entry points: `packages/services/src/bots/audioSpeech.ts` (`readBotTtsConfig`, `synthesizeSpeech`, 30 s timeout, 4000-char cap), `packages/services/src/bots/botsService.ts` (`sendCompletionVoiceSummary`), `telegramProvider.ts` `sendVoice` (falls back to plain text when voice delivery fails). The per-bot flag `voiceSummary: true` in `bot-config.v3.json` is opt-in and required.
+Code entry points: `packages/services/src/bots/audioSpeech.ts` (`readBotTtsConfig`, `synthesizeSpeech`, 300 s timeout, 4000-char cap), `packages/services/src/bots/botsService.ts` (`sendCompletionVoiceSummary`), `telegramProvider.ts` `sendVoice` (falls back to plain text when voice delivery fails). The per-bot flag `voiceSummary: true` in `bot-config.v3.json` is opt-in and required.
+
+Two bugfixes are part of this wiring (keep them when evolving the feature):
+
+- **Empty summary input**: in the default `assistant_changes` reply mode the reply text is streamed during the turn, so `replyMessages` is empty at completion; the voice summary must fall back to the turn's streamed assistant content or it receives an empty string and silently skips (`botsService.ts`, `streamedAssistantText` fallback).
+- **Observability**: every skip and failure path of `sendCompletionVoiceSummary` logs a `botsLogger.warn` line (`voice summary guard rejected`, `voice summary skipped: TTS backend not configured`, `voice summary synthesis failed`, `voice summary skipped: empty synthesis result`), mirroring the STT path's `voice transcription failed` warn. Without these the pipeline fails invisibly.
 
 ## Bot-side configuration
 
@@ -166,9 +171,11 @@ To rotate: recreate the container with a new key (or `docker rm -f omnivoice` th
 
 ## Constraints and known limits
 
-- **CPU-only on this host.** NVIDIA Container Toolkit is not installed; installing it requires restarting the Docker daemon, which disrupts other running containers, so the GPU (RTX 3060) is intentionally unused. On CPU, a 3 s clip takes ~14 s warm; the bots code aborts transcription after 30 s (`AUDIO_TRANSCRIPTION_TIMEOUT_MS` in `audioTranscription.ts`), so voice notes longer than ~10-15 s may not finish. Mitigations: install `deepdml/faster-whisper-large-v3-turbo-ct2` (1.6 GB, ~4x faster) and switch the active ASR model, or install the NVIDIA toolkit.
-- **TTS on CPU is ~2x slower than realtime** (a ~11 s Slovenian sentence synthesizes in ~27 s warm, OmniVoice). The bots code aborts synthesis after 30 s (`SPEECH_TIMEOUT_MS` in `audioSpeech.ts`); longer summaries silently skip the voice reply and fall back to text only. Keep summaries short, raise the timeout in code, or add GPU support if this bites.
-- **Wedge failure mode (observed twice)**: when several client-side aborts pile up (e.g. the bot's 30 s timeouts during a slow/hung request), the ASR queue can stall with the CPU spinning and all later requests hanging until `docker restart omnivoice`. A watchdog automation (every 10 min: STT probe → restart on wedge, log in `/tmp/omnivoice-watchdog.log`) self-heals this.
+- **GPU active (RTX 3060).** NVIDIA Container Toolkit is installed; the container runs with GPU access (`--gpus all`, `DeviceRequests: Count=-1`). Synthesis takes ~3 s for a sentence (was 42-48 s on CPU), transcription is effectively instant. When recreating the container, add `--gpus all` to the `docker run` command. History: GPU was initially skipped because installing the toolkit requires a Docker daemon restart - that restart bounces every running container, but all containers on this host use the `unless-stopped` policy and auto-recover within a minute.
+- **Client timeouts are 300 s in the bots feature code** (`AUDIO_TRANSCRIPTION_TIMEOUT_MS` in `audioTranscription.ts`, `SPEECH_TIMEOUT_MS` in `audioSpeech.ts`). They were 30 s originally, which aborted every synthesis slower than realtime and every voice note longer than ~15 s of audio on CPU - the root cause of "no voice reply ever arrives". On GPU both are generous.
+- **Known open bug - automated completion voice summary**: `task_complete` events never reach the bot runtime's stream handler (`handleStreamEventImpl`), while `agent_message_chunk` events (text streaming) do. Symptom: text replies deliver, but `sendCompletionVoiceSummary` never runs - zero log lines, including the guard log (`voice summary guard rejected: ...`) that logs on every guard rejection. Debug entry point: breakpoint the stream subscription ingress into `botsService.ts` and compare which event types arrive on the bot host. Note the runtime topology: the bot runtime host is spawned as a child of the session/task host - verify terminal events mirror across that boundary. The direct delivery path (synthesize + Telegram `sendVoice` with the bot token) is proven working and serves as a fallback.
+- **Instance-stacking pitfall (BotDev)**: the relaunch script's `pkill` patterns do not match the renamed `ZCode BotDev` main process title, so every relaunch leaves the previous instance alive. Stale instances keep winning the Telegram long-poll race and run old builds, which makes fixes appear to "not work". Kill stale `ZCode BotDev` mains before relaunching (or fix the script's pattern). Also: a `pkill -f` pattern that appears literally in the killing script's own command line kills the script itself - build the pattern with string concatenation.
+- **Wedge failure mode (historical, mostly CPU-era)**: piled-up client-side aborts can stall the ASR queue with the CPU spinning until `docker restart omnivoice`. A watchdog automation (every 10 min: STT probe → restart on wedge, log in `/tmp/omnivoice-watchdog.log`) self-heals this.
 - **Licence persistence**: model licence acceptance survives `docker restart` but is lost on container recreation (`docker rm` + `run`) - re-run the licence accept loop from the TTS setup section after recreating.
 - **Model stays resident**: ~3.8 GB RAM while the container runs. Model files live in the `omnivoice-data` Docker volume and survive container recreation.
 - **Port binding is loopback-only** (`127.0.0.1:3900`). The bots service runs on the host, so this works; do not expose the port externally without revisiting auth.
