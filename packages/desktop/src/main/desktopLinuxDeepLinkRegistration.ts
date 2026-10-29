@@ -11,7 +11,7 @@ import {
 const LINUX_DEEP_LINK_DESKTOP_FILE = "zcode.desktop";
 const LINUX_DEEP_LINK_MIME_TYPE = "x-scheme-handler/zcode";
 // 归属标记：用于识别用户级 zcode.desktop 是否由本应用写入（历史所有版本都带这行 Comment）。
-const LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER = "Comment=ZCode Desktop App";
+const LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER = "Comment=MCode Desktop App";
 
 type LinuxDesktopEnv = {
   APPIMAGE?: string;

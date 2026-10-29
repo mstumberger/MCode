@@ -1662,7 +1662,7 @@ export function createConversationV4Gateway(
     ) => {
       const persisted = await context.deps.sessionStore?.getSession(sessionId as SessionId);
       if (!persisted || persisted.time.deleted !== undefined) {
-        context.logger?.warn("ZCode Protocol v4 cold resume has no persisted session", {
+        context.logger?.warn("MCode Protocol v4 cold resume has no persisted session", {
           activeSessionCount: context.sessions.size,
           event: "zcode_protocol.v4.resume_persisted_missing",
           module: "bootstrap.zcode_protocol",
@@ -2132,7 +2132,7 @@ export function createConversationV4Gateway(
       };
     },
     onError: (scope, error, errorContext) =>
-      context.logger?.warn("ZCode Protocol v4 gateway error", {
+      context.logger?.warn("MCode Protocol v4 gateway error", {
         ...errorContext,
         error: error instanceof Error ? error.message : String(error),
         event: "zcode_protocol.v4.gateway_error",

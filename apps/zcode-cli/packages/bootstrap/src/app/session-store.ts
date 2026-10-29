@@ -92,7 +92,7 @@ export async function openStartupSessionStore(
   startupTimer: StartupTimer,
 ): Promise<SqliteSessionStore> {
   const dbPath = getSessionDbPath(configResult);
-  startupTimer.start("ZCode SQLite migration started", {
+  startupTimer.start("MCode SQLite migration started", {
     context: { dbPath },
     event: "bootstrap.app.startup.sqlite_migration.started",
     stage: "migrate_session_db",
@@ -109,7 +109,7 @@ export async function openStartupSessionStore(
       },
     },
   );
-  startupTimer.mark("ZCode SQLite migration completed", {
+  startupTimer.mark("MCode SQLite migration completed", {
     context: { dbPath },
     event: "bootstrap.app.startup.sqlite_migration.completed",
     stage: "migrate_session_db",
@@ -122,13 +122,13 @@ export async function openStartupZCodeProtocolSessionStore(
   startupTimer: StartupTimer,
 ): Promise<SqliteSessionStore> {
   const dbPath = getSessionDbPath(configResult);
-  startupTimer.start("ZCode Protocol SQLite migration started", {
+  startupTimer.start("MCode Protocol SQLite migration started", {
     context: { dbPath },
     event: "zcode_protocol.startup.sqlite_migration.started",
     stage: "migrate_session_db",
   });
   const store = await SqliteSessionStore.openStartup({ dbPath });
-  startupTimer.mark("ZCode Protocol SQLite migration completed", {
+  startupTimer.mark("MCode Protocol SQLite migration completed", {
     context: { dbPath },
     event: "zcode_protocol.startup.sqlite_migration.completed",
     stage: "migrate_session_db",
