@@ -51,7 +51,7 @@ jobs:
 
   unit-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
 
@@ -77,4 +77,10 @@ jobs:
           pnpm --filter @zcode/adapters build
 
       - name: Unit tests
-        run: pnpm test:unit
+        # threads pool workerji na 16GB runnerju po nepotrebnem tekmujejo za heap
+        # (ERR_WORKER_OUT_OF_MEMORY kljub zelenim testom); forks = procesna
+        # izolacija, ki jo repo že podpira prek ZCODE_TEST_POOL, isti testni obseg.
+        env:
+          ZCODE_TEST_POOL: forks
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm test:unit -- --poolOptions.forks.maxForks=2
