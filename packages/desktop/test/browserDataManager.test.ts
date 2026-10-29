@@ -782,6 +782,10 @@ describe("browserDataManager", () => {
     const result = await importChromeLocalStorage({
       profilePath,
       platform: "aix",
+      // Bugfix：platform:"aix" 隐式依赖宿主机探测不到 Chrome；装有 Chrome 的机器
+      // （含 CI runner）上真实探测会命中可执行文件，用例退化成环境相关。
+      // 空路径让“未找到 Chrome”分支在任何机器上都确定成立。
+      chromeExecutablePath: "",
       logger,
       targetSession: {} as Electron.Session,
     });

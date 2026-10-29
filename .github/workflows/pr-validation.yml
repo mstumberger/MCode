@@ -65,5 +65,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages needed by unit tests
+        # Several suites import @zcode/e2e-report and @zcode/adapters/storage,
+      # whose package entries point at built dist/ output.
+        run: |
+          pnpm --filter @zcode/e2e-report build:node
+          pnpm --filter @zcode/adapters build
+
       - name: Unit tests
         run: pnpm test:unit
