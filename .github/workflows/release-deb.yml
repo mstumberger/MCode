@@ -7,6 +7,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version (e.g. 3.16.3-m1); ignored on release runs, where the tag is used"
+        required: true
+        default: "0.0.0-dev"
 
 permissions:
   contents: write
@@ -33,12 +38,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Resolve package version (release tag without leading v)
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Build Linux .deb
         working-directory: packages/desktop
         env:
           ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
           # config builds AppImage/deb/rpm/pacman by default; we only ship .deb
           ZCODE_BUILDER_TARGETS: deb
+          # single source of truth for the package version is the release tag
+          ZCODE_BUILDER_VERSION: ${{ github.event_name == 'release' && steps.version.outputs.version || inputs.version }}
         run: pnpm bundle --os linux --arch x64
 
       - name: Upload .deb as workflow artifact

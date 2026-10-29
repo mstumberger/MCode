@@ -725,6 +725,12 @@ async function main() {
   if (builderTargets.length > 0) {
     buildArgs.push(`--config.${os}.target=${builderTargets.join(",")}`);
   }
+  // 可选的版本注入：ZCODE_BUILDER_VERSION=3.16.3-m1 让安装包版本来自 release tag，
+  // 不再依赖 desktop package.json 的静态 version（避免 tag 与包版本错位导致 dpkg 视为降级）。
+  const builderVersion = process.env.ZCODE_BUILDER_VERSION?.trim();
+  if (builderVersion) {
+    buildArgs.push(`--config.extraMetadata.version=${builderVersion}`);
+  }
 
   console.log(`[bundle] target=${os}/${arch}${builderTargets.length > 0 ? ` [${builderTargets.join(",")}]` : ""}`);
   console.log(`[bundle] skipPrepare=${skipPrepare} skipBuild=${skipBuild}`);
