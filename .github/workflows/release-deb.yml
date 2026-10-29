@@ -1,0 +1,53 @@
+# Build the Linux .deb on every published release and attach it to the release.
+# Packaging entry is the repo's own bundle wrapper (prepare runtime assets →
+# production build → electron-builder with mirror + closure verification).
+name: release-deb
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-deb-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # reads the packageManager field (pnpm@10.33.2)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Linux packages
+        working-directory: packages/desktop
+        env:
+          ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
+        run: pnpm bundle --linux
+
+      - name: Upload .deb as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcode-linux-deb
+          path: packages/desktop/dist/*.deb
+          if-no-files-found: error
+
+      - name: Attach .deb to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/desktop/dist/*.deb
