@@ -37,7 +37,7 @@ jobs:
         working-directory: packages/desktop
         env:
           ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
-        run: pnpm bundle --linux
+        run: pnpm bundle --os linux --arch x64
 
       - name: Upload .deb as workflow artifact
         uses: actions/upload-artifact@v4

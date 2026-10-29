@@ -67,8 +67,12 @@ jobs:
 
       - name: Build workspace packages needed by unit tests
         # Several suites import @zcode/e2e-report and @zcode/adapters/storage,
-      # whose package entries point at built dist/ output.
+      # whose package entries point at built dist/ output. adapters also
+      # resolves types from @zcode/contracts and @zcode/dynamic-workflow,
+      # so the chain must be built bottom-up on a fresh checkout.
         run: |
+          pnpm --filter @zcode/contracts build
+          pnpm --filter @zcode/dynamic-workflow build
           pnpm --filter @zcode/e2e-report build:node
           pnpm --filter @zcode/adapters build
 
