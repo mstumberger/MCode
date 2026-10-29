@@ -112,6 +112,8 @@ const zhCN: Record<string, string> = {
   "project.delete": "删除项目",
   "project.showMore": "显示更多",
   "project.addFolder": "将文件夹加入项目",
+  "project.moveTask": "移到项目",
+  "project.moveTaskNoProjects": "暂无项目",
   "project.projects": "项目",
   "project.timeline": "时间线",
   "project.view": "筛选视图",

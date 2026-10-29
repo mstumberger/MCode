@@ -86,6 +86,8 @@ const enUS: Record<string, string> = {
   "project.unresolved": "Select a project",
   "project.removeEntry": "Remove from this device",
   "project.addFolder": "Add folder to project",
+  "project.moveTask": "Move to project",
+  "project.moveTaskNoProjects": "No projects",
   "project.projects": "Projects",
   "project.timeline": "Timeline",
   "project.view": "Filter view",

@@ -6,7 +6,7 @@ Host projectService 的 readTree 决定行集合、项目归属和 CLI 事实镜
 
 恢复时通过公开的 `resolveEntryProject` 从所属 Host 项目树解析有效项目，复用旧入口的唯一匹配规则。原项目 ID 显式传给 Root 草稿 owner，同时更新内存与持久化草稿范围，不从同目录缓存反推归属。
 
-创建经 Host prepareSession 固化 cwd，草稿持有 projectId，首发前由 Host 原子预留归属。选择其他项目会重建尚未提升的预热实例，已提交任务不受影响。拖动只发 moveTask，缺 root 经确认重试，失败保持原树。软删项目保留任务归属；时间线可见；恢复需用户显式选择同 roots 的已删项目。
+创建经 Host prepareSession 固化 cwd，草稿持有 projectId，首发前由 Host 原子预留归属。选择其他项目会重建尚未提升的预热实例，已提交任务不受影响。拖动只发 moveTask，缺 root 经确认重试，失败保持原树。任务行右键「移到项目」与拖动共用同一 moveTask 命令、确认与失败语义，不新增状态所有者；菜单候选由共享目录投影派生（同 Host、未删除、含置顶/时间线行），跨 Host 不展示，当前项目与离线远端禁用，legacy 单 root 目标与拖放同规则禁用。软删项目保留任务归属；时间线可见；恢复需用户显式选择同 roots 的已删项目。
 
 桌面和手机共用组件；沿用现有 task 行操作、shared-host attachment、continuous/replayable 传输。CLI 不接收项目 ID。
 

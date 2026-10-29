@@ -160,6 +160,32 @@ export function projectKey(project: Pick<VirtualProject, "id" | "hostId">): stri
   return JSON.stringify([project.hostId, project.id]);
 }
 
+export interface TaskProjectMoveCandidate {
+  project: VirtualProject;
+  /** 当前所属项目、离线远端与 legacy 单 root 目标不可选；禁用项保留展示，与拖放落点规则一致。 */
+  disabled: boolean;
+}
+
+/**
+ * 「移到项目」菜单候选：与拖放同规则。service.moveTask 拒绝跨 Host 移动，
+ * 跨 Host 项目不进入候选；顺序沿用目录投影（置顶优先 + 偏好排序），不改写排序。
+ */
+export function taskProjectMoveCandidates(
+  projects: readonly VirtualProject[],
+  task: Pick<ProjectTask, "hostId" | "projectId">,
+  availability: ReadonlyMap<string, ProjectAvailability> = new Map(),
+): TaskProjectMoveCandidate[] {
+  return projects
+    .filter((project) => !project.deleted && project.hostId === task.hostId)
+    .map((project) => ({
+      project,
+      disabled:
+        project.id === task.projectId ||
+        project.legacySingleRoot === true ||
+        availability.get(projectKey(project))?.online === false,
+    }));
+}
+
 export function resolveEntryProject(
   entry: RemoteProjectEntry,
   tree: ProjectTree,

@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { ProjectTask, ProjectTree } from "@/project-sidebar/contract.js";
+import type {
+  ProjectAvailability,
+  ProjectTask,
+  ProjectTree,
+  VirtualProject,
+} from "@/project-sidebar/contract.js";
 import {
   selectProjectRows,
   mergeProjectTrees,
   projectKey,
   resolveEntryProject,
+  taskProjectMoveCandidates,
 } from "@/project-sidebar/view.js";
 const task = (id: string, projectId: string | null, updatedAt: number): ProjectTask => ({
   taskId: id,
@@ -165,6 +171,65 @@ describe("project-sidebar read contract", () => {
     expect(selectProjectRows(tree, { kind: "timeline" }).map((row) => row.taskId)).toEqual([
       "new",
       "pinned",
+    ]);
+  });
+});
+
+describe("task move-to-project candidates", () => {
+  const project = (
+    id: string,
+    hostId = "local",
+    extra: Partial<VirtualProject> = {},
+  ): VirtualProject => ({
+    id,
+    hostId,
+    name: id,
+    nameOverridden: false,
+    roots: [],
+    position: 1,
+    pinned: false,
+    deleted: false,
+    createdAt: 1,
+    updatedAt: 1,
+    ...extra,
+  });
+  it("offers only same-host undeleted projects in directory order", () => {
+    const candidates = taskProjectMoveCandidates(
+      [
+        project("pinned", "local", { pinned: true }),
+        project("other-host", "remote:server:s"),
+        project("deleted", "local", { deleted: true }),
+        project("plain", "local"),
+      ],
+      { hostId: "local", projectId: null },
+    );
+    expect(candidates.map((candidate) => candidate.project.id)).toEqual(["pinned", "plain"]);
+    expect(candidates.map((candidate) => candidate.disabled)).toEqual([false, false]);
+  });
+  it("disables the current project, legacy single-root targets and offline remotes", () => {
+    const hostId = "remote:server:s";
+    const offline = project("offline", hostId);
+    const online = project("online", hostId);
+    const availability = new Map<string, ProjectAvailability>([
+      [projectKey(offline), { entryId: "e1", online: false }],
+      [projectKey(online), { entryId: "e2", online: true }],
+    ]);
+    const candidates = taskProjectMoveCandidates(
+      [
+        project("current", hostId),
+        project("legacy", hostId, { legacySingleRoot: true }),
+        offline,
+        online,
+        project("local", "local"),
+      ],
+      { hostId, projectId: "current" },
+      availability,
+    );
+    expect(candidates.map((candidate) => [candidate.project.id, candidate.disabled])).toEqual([
+      ["current", true],
+      ["legacy", true],
+      ["offline", true],
+      ["online", false],
     ]);
   });
 });
