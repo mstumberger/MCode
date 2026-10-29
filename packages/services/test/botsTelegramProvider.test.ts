@@ -264,16 +264,92 @@ describe("telegram bot provider", () => {
             { command: "status", description: "Show current status" },
             { command: "new", description: "Create a new task" },
             { command: "project", description: "Select project" },
+            { command: "task", description: "Select chat in project" },
             { command: "model", description: "Select model" },
             { command: "mode", description: "Select mode" },
+            { command: "permissions", description: "Set permission level" },
             { command: "think", description: "Select thinking level" },
             { command: "reply", description: "Select reply detail" },
+            { command: "progress", description: "Show task progress" },
             { command: "bind", description: "Bind this chat" },
           ],
         }),
       }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes custom commands in the Telegram bot menu", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createTelegramBotProvider({
+      loadCredential: vi.fn(async () => "token"),
+    });
+
+    await provider.syncCommands?.({
+      ...bot,
+      customCommands: [
+        { name: "deploy", description: "Deploy staging", prompt: "Deploy to staging" },
+        { name: "review_pr", prompt: "Review the open pull request" },
+      ],
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      commands: Array<{ command: string; description: string }>;
+    };
+    const names = body.commands.map((command) => command.command);
+    expect(names).toContain("deploy");
+    expect(names).toContain("review_pr");
+    const review = body.commands.find((command) => command.command === "review_pr");
+    // 未提供 description 时回落到 prompt 前 256 字符，保证菜单可见。
+    expect(review?.description).toBe("Review the open pull request");
+  });
+
+  it("sends voice replies through sendVoice instead of sendMessage", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createTelegramBotProvider({
+      loadCredential: vi.fn(async () => "token"),
+    });
+
+    await provider.send(bot, {
+      botId: bot.id,
+      provider: "telegram",
+      providerUserId: "chat-1",
+      text: "Task summary (voice)",
+      voice: { data: new Uint8Array([1, 2, 3]), filename: "task-summary-task-1.ogg" },
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/sendVoice");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const form = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(form.get("chat_id")).toBe("chat-1");
+    expect(form.get("caption")).toBe("Task summary (voice)");
+    const voice = form.get("voice");
+    expect(voice).toBeInstanceOf(File);
+    expect((voice as File).name).toBe("task-summary-task-1.ogg");
+  });
+
+  it("falls back to text delivery when sendVoice fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false }), { status: 400 }))
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createTelegramBotProvider({
+      loadCredential: vi.fn(async () => "token"),
+    });
+
+    await provider.send(bot, {
+      botId: bot.id,
+      provider: "telegram",
+      providerUserId: "chat-1",
+      text: "Task summary (voice)",
+      voice: { data: new Uint8Array([1]), filename: "task-summary.ogg" },
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/sendVoice");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/sendMessage");
   });
 
   it("clears Telegram bot menu when bot is disabled", async () => {

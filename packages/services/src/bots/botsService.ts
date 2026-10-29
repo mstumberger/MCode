@@ -186,8 +186,11 @@ import {
   readLatestTaskProgress,
   readTaskWorkedDurationMs,
   taskStatus,
+  taskStatusIcon,
   truncateLiveStatusProgressText,
 } from "./statusFormatting.js";
+import { readBotSttConfig, transcribeAudioAttachment } from "./audioTranscription.js";
+import { readBotTtsConfig, synthesizeSpeech } from "./audioSpeech.js";
 import { createTelegramChannelRuntime } from "./telegramChannelRuntime.js";
 import { createBotTaskStreamHub } from "#src/bots/taskStreamHub.js";
 import { createWeixinChannelRuntime } from "./weixinChannelRuntime.js";
@@ -269,10 +272,13 @@ const helpMessageByCommand = {
   status: "helpStatus",
   new: "helpNew",
   workspace: "helpWorkspace",
+  task: "helpTask",
   model: "helpModel",
   mode: "helpMode",
+  permissions: "helpPermissions",
   thoughtLevel: "helpThoughtLevel",
   reply: "helpReply",
+  progress: "helpProgress",
 } as const satisfies Record<(typeof BOT_MENU_COMMAND_ORDER)[number], BotMessageId>;
 
 function validateBotConfig(config: BotsConfigFile, candidate: BotConfig): void {
@@ -606,15 +612,34 @@ function getBotPermissionOptionDisplayKind(
 function sortBotPermissionOptions(
   options: readonly ZCodePermissionOption[],
 ): ZCodePermissionOption[] {
-  return [...options].sort((left, right) => {
-    const leftPriority = BOT_PERMISSION_OPTION_PRIORITY[getBotPermissionOptionDisplayKind(left)];
-    const rightPriority = BOT_PERMISSION_OPTION_PRIORITY[getBotPermissionOptionDisplayKind(right)];
-    return leftPriority - rightPriority;
-  });
+  const priorityOf = (option: ZCodePermissionOption): number => {
+    const displayKind = getBotPermissionOptionDisplayKind(option);
+    // “full access”是授权升级选项，语义等同 allowAlways；按 custom 的末位排序会落到 Deny 之后，
+    // 手机上容易被当成无关按钮，这里与桌面端一致放在允许区。
+    if (
+      displayKind === "custom" &&
+      option.name.trim().replace(/\s+/gu, " ").toLowerCase() === "full access"
+    ) {
+      return BOT_PERMISSION_OPTION_PRIORITY.allowAlways;
+    }
+    return BOT_PERMISSION_OPTION_PRIORITY[displayKind];
+  };
+  return [...options].sort((left, right) => priorityOf(left) - priorityOf(right));
 }
 
 function formatBotPermissionOptionLabel(option: ZCodePermissionOption, locale?: Locale): string {
   const displayKind = getBotPermissionOptionDisplayKind(option);
+  if (displayKind === "custom") {
+    // 桌面端对 runtime 已知的特殊选项名做了 i18n 归一；机器人侧保持同一套文案，
+    // 否则手机上只能看到原始英文 "full access"，识别不出这就是“完全访问”。
+    const normalizedName = option.name.trim().replace(/\s+/gu, " ").toLowerCase();
+    if (normalizedName === "full access") {
+      return locale === "en-US" ? "Full access" : "完全访问";
+    }
+    if (normalizedName === "always allow in this project") {
+      return locale === "en-US" ? "Allow for this project" : "本项目始终允许";
+    }
+  }
   if (locale === "en-US") {
     switch (displayKind) {
       case "allowOnce":
@@ -650,6 +675,12 @@ function formatBotPermissionOptionDescription(
 ): string | undefined {
   const displayKind = getBotPermissionOptionDisplayKind(option);
   if (displayKind === "custom") {
+    const normalizedName = option.name.trim().replace(/\s+/gu, " ").toLowerCase();
+    if (normalizedName === "full access") {
+      return locale === "en-US"
+        ? "Grant the agent full access without further confirmation."
+        : "授予 Agent 完全访问权限，不再确认。";
+    }
     return option.kind;
   }
   const scope = getPermissionRequestPreview(request).scope;
@@ -1940,6 +1971,231 @@ export function createBotsService(
     }
   }
 
+  // —— 他任务注意提醒 ——
+  // 单聊 bot 只订阅 active task 的流；其它会话的权限/问答请求原本对机器人不可见。
+  // 这里为同一 workspace 内的非 active 任务建立“安静”订阅：只在出现待处理交互时提醒，
+  // 不转发其它流事件。用户点击“切换会话”按钮接手后，订阅移除、正常流程接管。
+  interface ForeignTaskAttention {
+    dispose(): void;
+    notifiedRequestIds: Set<string>;
+    pendingPermission?: {
+      options: NonNullable<BotContextState["pendingPermissionOptions"]>;
+      selection: SelectionPrompt;
+    };
+  }
+  const foreignTaskWatchers = new Map<string, ForeignTaskAttention>();
+  const FOREIGN_TASK_SWEEP_INTERVAL_MS = 60_000;
+  const FOREIGN_TASK_WATCH_LIMIT = 10;
+  let foreignTaskSweepTimer: ReturnType<typeof setInterval> | undefined;
+
+  function foreignWatchKey(botId: string, taskId: string): string {
+    return `${botId}:${taskId}`;
+  }
+
+  async function deliverForeignAttention(
+    bot: BotConfig,
+    context: BotContextState,
+    task: { taskId: string; title?: string },
+    text: string,
+    locale: Locale | undefined,
+  ): Promise<void> {
+    if (!bot.providerUserId) {
+      return;
+    }
+    const actor: BotActor = {
+      provider: bot.provider,
+      botId: bot.id,
+      providerUserId: bot.providerUserId,
+      chatType: "private",
+    };
+    const actorKey = getActorContextKey(actor);
+    const entryMap = pendingTaskSelectionsByContext.get(actorKey) ?? new Map();
+    entryMap.set(task.taskId, { task } as never);
+    pendingTaskSelectionsByContext.set(actorKey, entryMap);
+    const [reply] = await createSelectionReply(
+      actor,
+      {
+        id: `foreign-attention-${Date.now()}`,
+        title: text,
+        currentId: context.activeTaskId ?? undefined,
+        action: "task.set",
+        options: [
+          {
+            id: task.taskId,
+            label: `⏸ ${task.title?.trim() || task.taskId}`,
+          },
+        ],
+      },
+      locale,
+    );
+    if (reply) {
+      await sendOutbound(bot, reply);
+    }
+  }
+
+  function createForeignTaskWatcher(
+    bot: BotConfig,
+    context: BotContextState,
+    task: { taskId: string; title?: string },
+    subscribe: (listener: (event: ZCodeStreamEvent) => void) => { dispose(): void },
+  ): ForeignTaskAttention {
+    const entry: ForeignTaskAttention = {
+      notifiedRequestIds: new Set(),
+      dispose() {
+        subscription.dispose();
+      },
+    };
+    const subscription = subscribe((event) => {
+      void (async () => {
+        try {
+          if (event.type === "permission_request") {
+            const dedupeKey = `p:${event.requestId}`;
+            if (entry.notifiedRequestIds.has(dedupeKey)) {
+              return;
+            }
+            entry.notifiedRequestIds.add(dedupeKey);
+            const locale = await readMessageLocale();
+            const permissionOptions = sortBotPermissionOptions(event.options);
+            entry.pendingPermission = {
+              options: permissionOptions.map((option) => {
+                const isDenyCommand = isBotPermissionRejectOption(option);
+                return {
+                  requestId: event.requestId,
+                  optionId: option.optionId,
+                  command: isDenyCommand ? ("deny" as const) : ("approve" as const),
+                  label: formatBotPermissionOptionLabel(option, locale),
+                  response: option.response,
+                };
+              }),
+              selection: {
+                id: `permission-${event.requestId}`,
+                title: formatBotPermissionRequestSummary(event, {
+                  locale,
+                  workspacePath: context.workspacePath,
+                }),
+                action: "permission.respond",
+                showCancel: false,
+                options: permissionOptions.map((option) => {
+                  const isDenyOption = isBotPermissionRejectOption(option);
+                  return {
+                    id: isDenyOption
+                      ? `/deny ${event.requestId}`
+                      : `/approve ${event.requestId} ${option.optionId}`,
+                    label: formatBotPermissionOptionLabel(option, locale),
+                    description: formatBotPermissionOptionDescription(option, event, locale),
+                  };
+                }),
+              },
+            };
+            await deliverForeignAttention(
+              bot,
+              context,
+              task,
+              msg(locale, "foreignTaskAttentionPermission", {
+                title: task.title?.trim() || task.taskId,
+              }),
+              locale,
+            );
+            return;
+          }
+          if (event.type === "elicitation_request") {
+            const dedupeKey = `e:${event.requestId}`;
+            if (entry.notifiedRequestIds.has(dedupeKey)) {
+              return;
+            }
+            entry.notifiedRequestIds.add(dedupeKey);
+            const locale = await readMessageLocale();
+            await deliverForeignAttention(
+              bot,
+              context,
+              task,
+              msg(locale, "foreignTaskAttentionElicitation", {
+                title: task.title?.trim() || task.taskId,
+              }),
+              locale,
+            );
+          }
+        } catch {
+          // 提醒尽力而为；失败不影响任务本身。
+        }
+      })();
+    });
+    return entry;
+  }
+
+  async function sweepForeignTaskWatchers(): Promise<void> {
+    const config = await repo.readConfig();
+    const state = await repo.readState();
+    for (const bot of config.bots) {
+      if (
+        !bot.enabled ||
+        !bot.providerUserId ||
+        (bot.provider !== "telegram" && bot.provider !== "webhook" && bot.provider !== "weixin")
+      ) {
+        continue;
+      }
+      const context = state.bots[bot.id];
+      if (!context?.privateBindingId || context.group) {
+        continue;
+      }
+      try {
+        const zcodeTaskService = await resolveZCodeTaskServiceForContext(context);
+        const tasks = await zcodeTaskService.listTasks({
+          workspacePath: context.workspacePath,
+          workspaceIdentity: context.workspaceIdentity,
+        });
+        const foreignTasks = tasks
+          .filter((candidate) => candidate.taskId !== context.activeTaskId)
+          .slice(-FOREIGN_TASK_WATCH_LIMIT);
+        const liveTaskIds = new Set(foreignTasks.map((candidate) => candidate.taskId));
+        for (const key of foreignTaskWatchers.keys()) {
+          if (
+            key.startsWith(`${bot.id}:`) &&
+            !liveTaskIds.has(key.slice(bot.id.length + 1))
+          ) {
+            foreignTaskWatchers.get(key)?.dispose();
+            foreignTaskWatchers.delete(key);
+          }
+        }
+        for (const task of foreignTasks) {
+          const key = foreignWatchKey(bot.id, task.taskId);
+          if (foreignTaskWatchers.has(key)) {
+            continue;
+          }
+          foreignTaskWatchers.set(
+            key,
+            createForeignTaskWatcher(bot, context, task, (listener) =>
+              zcodeTaskService.onDynamicStreamEvent(task.taskId)(listener),
+            ),
+          );
+        }
+      } catch {
+        // workspace runtime 暂不可用（如远端断开）；下轮 sweep 再试。
+      }
+    }
+  }
+
+  function startForeignTaskSweeper(): void {
+    if (foreignTaskSweepTimer || !runStartupBackgroundTasks) {
+      return;
+    }
+    foreignTaskSweepTimer = setInterval(() => {
+      void sweepForeignTaskWatchers().catch(() => undefined);
+    }, FOREIGN_TASK_SWEEP_INTERVAL_MS);
+    foreignTaskSweepTimer.unref?.();
+  }
+
+  function disposeForeignTaskWatchers(): void {
+    if (foreignTaskSweepTimer) {
+      clearInterval(foreignTaskSweepTimer);
+      foreignTaskSweepTimer = undefined;
+    }
+    for (const watcher of foreignTaskWatchers.values()) {
+      watcher.dispose();
+    }
+    foreignTaskWatchers.clear();
+  }
+
   async function resolveAttachmentBytes(
     bot: BotConfig,
     attachment: BotInboundAttachment,
@@ -1986,6 +2242,36 @@ export function createBotsService(
     };
   }
 
+  /**
+   * 语音转文字：仅在环境变量配置了 STT 后端且该 bot 未显式关闭时尝试。
+   * 转写失败静默回落到纯附件行为，不阻塞消息链路。
+   */
+  async function transcribeBotAudioAttachment(
+    bot: BotConfig,
+    attachment: BotInboundAttachment,
+    data: Uint8Array,
+  ): Promise<string | null> {
+    if (bot.voiceTranscription === false) {
+      return null;
+    }
+    const config = readBotSttConfig(process.env);
+    if (!config) {
+      return null;
+    }
+    try {
+      return await transcribeAudioAttachment(config, {
+        data,
+        attachment: { filename: attachment.filename, mimeType: attachment.mimeType },
+      });
+    } catch (error) {
+      botsLogger.warn(
+        undefined,
+        `voice transcription failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  }
+
   async function prepareBotMessageContent(
     bot: BotConfig,
     message: BotInboundMessage,
@@ -2002,6 +2288,7 @@ export function createBotsService(
     const rawAttachments = (message.attachments ?? []).slice(0, BOT_MAX_ATTACHMENTS_PER_MESSAGE);
     const zcodeAttachments: ZCodePromptAttachment[] = [];
     const fileLines: string[] = [];
+    let voiceTranscript: string | null = null;
     for (const rawAttachment of rawAttachments) {
       const resolved = await resolveAttachmentBytes(bot, rawAttachment, message.actor);
       if (!resolved) {
@@ -2021,6 +2308,9 @@ export function createBotsService(
         data: resolved.data,
       });
       const dataBase64 = Buffer.from(resolved.data).toString("base64");
+      if (!voiceTranscript && cached.kind === "audio") {
+        voiceTranscript = await transcribeBotAudioAttachment(bot, cached, resolved.data);
+      }
       if (isGroup) {
         // 旧兼容入口只把文件路径拼进正文，既丢失 V4 附件又破坏末尾引用块；群输入只走标准寄存。
         zcodeAttachments.push({
@@ -2056,8 +2346,14 @@ export function createBotsService(
       );
     }
     const trimmed = message.text.trim();
+    if (voiceTranscript && trimmed) {
+      // 用户已经附上文字时只补一行转写；纯语音消息则直接把转写作为 prompt 正文。
+      fileLines.unshift(msg(locale, "voiceTranscriptLine", { text: voiceTranscript }));
+    }
     const baseContent =
-      trimmed || (rawAttachments.length > 0 ? msg(locale, "attachmentOnlyPrompt") : "");
+      trimmed ||
+      voiceTranscript ||
+      (rawAttachments.length > 0 ? msg(locale, "attachmentOnlyPrompt") : "");
     return {
       content: [baseContent, ...fileLines].filter(Boolean).join("\n\n"),
       zcodeAttachments,
@@ -2801,6 +3097,8 @@ export function createBotsService(
         return { type: "model.set", value: option.id };
       case "mode.set":
         return { type: "mode.set", value: option.id };
+      case "permissions.set":
+        return { type: "permissions.set", value: option.id };
       case "thoughtLevel.set":
         return { type: "thoughtLevel.set", value: option.id };
       case "task.set":
@@ -5881,6 +6179,25 @@ export function createBotsService(
             locale,
           });
         }
+        // 可选语音摘要：bot 显式开启 voiceSummary 且配置了 TTS 后端时，在完成文本后追加一条语音。
+        const sendCompletionVoiceSummary = async (summaryText: string): Promise<void> => {
+          if (context.group || bot.voiceSummary !== true || bot.provider !== "telegram") {
+            return;
+          }
+          const ttsConfig = readBotTtsConfig(process.env);
+          if (!ttsConfig) {
+            return;
+          }
+          const audio = await synthesizeSpeech(ttsConfig, summaryText).catch(() => null);
+          if (!audio || audio.byteLength === 0) {
+            return;
+          }
+          const extension = ttsConfig.format === "opus" ? "ogg" : ttsConfig.format;
+          await sendTaskOutbound(bot, {
+            ...createOutbound(actor, msg(locale, "voiceSummaryCaption")),
+            voice: { data: audio, filename: `task-summary-${event.taskId}.${extension}` },
+          });
+        };
         if (replyMessages.length === 0 && !sentAnyAssistantReply) {
           const source = resultSourceCommandId
             ? context.group?.inputs?.[resultSourceCommandId]?.source
@@ -5893,16 +6210,16 @@ export function createBotsService(
             !source.messages?.some((message) => message.mentionedBot === true)
           )
             return;
-          await sendTaskOutbound(
-            bot,
-            createOutbound(actor, locale === "en-US" ? "Task completed." : "任务已完成。"),
-          );
+          const fallbackText = locale === "en-US" ? "Task completed." : "任务已完成。";
+          await sendTaskOutbound(bot, createOutbound(actor, fallbackText));
+          await sendCompletionVoiceSummary(fallbackText);
           return;
         }
         for (const text of replyMessages) {
           sentAnyAssistantReply = true;
           await sendTaskOutbound(bot, createOutbound(actor, text));
         }
+        await sendCompletionVoiceSummary(replyMessages.join("\n\n"));
       }
     };
     const handleStreamEvent = async (
@@ -6680,7 +6997,7 @@ export function createBotsService(
 
   function buildHelpText(
     locale: Locale | undefined,
-    bot: Pick<BotConfig, "allowedCommands">,
+    bot: Pick<BotConfig, "allowedCommands" | "customCommands">,
     groupRole?: "owner" | "member",
   ): string {
     const lines = [msg(locale, "helpTitle")];
@@ -6711,6 +7028,12 @@ export function createBotsService(
         continue;
       }
       lines.push(msg(locale, helpMessageByCommand[command]));
+    }
+    if (!groupRole) {
+      for (const custom of bot.customCommands ?? []) {
+        const customDescription = custom.description?.trim() || custom.prompt.slice(0, 80);
+        lines.push(`**/${custom.name}** — ${customDescription}`);
+      }
     }
     return lines.join("\n");
   }
@@ -7897,17 +8220,194 @@ export function createBotsService(
     return [];
   }
 
+  /**
+   * /permissions：以“权限级别”视角读写当前任务的运行模式。
+   * 与 /mode 不同，单聊不套用 yolo 硬锁——附加的 App 任务往往带 ask 模式，
+   * 机器人端需要一个免打扰开关把任务切到 Full access（yolo）。
+   */
+  async function handlePermissionsList(message: BotInboundMessage): Promise<BotOutboundMessage[]> {
+    const auth = await withAuthorizedContext(message, "mode");
+    if (!auth.ok) return auth.reply;
+    const blockReason = await getContextTaskBlockReason(auth.context);
+    if (blockReason) {
+      return [createOutbound(message.actor, msg(auth.locale, blockReason))];
+    }
+    if (auth.context.mode === "draft" || !auth.context.activeTaskId) {
+      const draftOptions = await ensureDraftOptions(auth.context);
+      const optionSource = await listDraftConfigOptions(auth.context, draftOptions);
+      const currentLabel = readConfigSelectLabelForValue(optionSource, "mode", draftOptions.mode, {
+        locale: auth.locale,
+        provider: draftOptions.provider,
+      });
+      const options = listConfigSelectOptions(optionSource, "mode", {
+        locale: auth.locale,
+        provider: draftOptions.provider,
+      });
+      if (options.length === 0) {
+        return [createOutbound(message.actor, msg(auth.locale, "modeMissing"))];
+      }
+      return createSelectionReply(
+        message.actor,
+        {
+          id: `permissions-${Date.now()}`,
+          title: msg(auth.locale, "permissionsSelectTitle", { mode: currentLabel ?? "-" }),
+          currentId: draftOptions.mode,
+          action: "permissions.set",
+          options,
+        },
+        auth.locale,
+      );
+    }
+    const active = await requireActiveTask(message, auth);
+    if (!active.ok) return active.reply;
+    const optionSource =
+      active.task.provider
+        ? await listProviderConfigOptionsForActiveTask(active.task, active.task.provider)
+        : active.configOptions;
+    const selectOption = findSelectConfigOption(optionSource, "mode");
+    const options = listConfigSelectOptions(optionSource, "mode", {
+      locale: auth.locale,
+      provider: active.task.provider,
+    });
+    if (options.length === 0 || !selectOption?.id) {
+      return [createOutbound(message.actor, msg(auth.locale, "modeMissing"))];
+    }
+    const rawCurrentValue = selectOption.currentValue;
+    const currentValue = typeof rawCurrentValue === "string" ? rawCurrentValue : undefined;
+    const currentLabel = readConfigSelectLabelForValue(optionSource, "mode", currentValue, {
+      locale: auth.locale,
+      provider: active.task.provider,
+    });
+    return createSelectionReply(
+      message.actor,
+      {
+        id: `permissions-${Date.now()}`,
+        title: msg(auth.locale, "permissionsSelectTitle", { mode: currentLabel ?? "-" }),
+        currentId: currentValue,
+        action: "permissions.set",
+        options,
+      },
+      auth.locale,
+    );
+  }
+
+  async function handlePermissionsSet(
+    message: BotInboundMessage,
+    value: string,
+  ): Promise<BotOutboundMessage[]> {
+    const auth = await withAuthorizedContext(message, "mode");
+    if (!auth.ok) return auth.reply;
+    const blockReason = await getContextTaskBlockReason(auth.context);
+    if (blockReason) {
+      return [createOutbound(message.actor, msg(auth.locale, blockReason))];
+    }
+    if (auth.context.mode === "draft" || !auth.context.activeTaskId) {
+      const originalOptions = await ensureDraftOptions(auth.context);
+      const optionSource = await listDraftConfigOptions(auth.context, originalOptions);
+      const displayOptions = listConfigSelectOptions(optionSource, "mode", {
+        locale: auth.locale,
+        provider: originalOptions.provider,
+      });
+      const option =
+        resolvePendingSelectionOption(message.actor, "permissions.set", value) ??
+        resolveOptionByValue(displayOptions, value);
+      if (!option || !displayOptions.some((candidate) => candidate.id === option.id)) {
+        return [createOutbound(message.actor, msg(auth.locale, "modeMissing"))];
+      }
+      await writeDraftOptions(auth.context, { ...originalOptions, mode: option.id });
+      return [
+        createOutbound(
+          message.actor,
+          msg(auth.locale, "permissionsChanged", { mode: option.label }),
+        ),
+      ];
+    }
+    const active = await requireActiveTask(message, auth);
+    if (!active.ok) return active.reply;
+    const optionSource = active.task.provider
+      ? await listProviderConfigOptionsForActiveTask(active.task, active.task.provider)
+      : active.configOptions;
+    const selectOption = findSelectConfigOption(optionSource, "mode");
+    const displayOptions = listConfigSelectOptions(optionSource, "mode", {
+      locale: auth.locale,
+      provider: active.task.provider,
+    });
+    const option =
+      resolvePendingSelectionOption(message.actor, "permissions.set", value) ??
+      resolveOptionByValue(displayOptions, value);
+    if (!option || !selectOption?.id) {
+      return [createOutbound(message.actor, msg(auth.locale, "modeMissing"))];
+    }
+    const traceId = generateTraceId(active.taskId);
+    const zcodeTaskService = await resolveZCodeTaskServiceForContext(auth.context);
+    await zcodeTaskService.setConfigOption({
+      taskId: active.taskId,
+      traceId,
+      configId: selectOption.id,
+      value: option.id,
+    });
+    await broadcastTaskConfigSync({
+      context: auth.context,
+      taskId: active.taskId,
+      task: await readContextActiveTaskMeta(auth.context),
+      provider: active.task.provider,
+      configOptions: await listActiveTaskConfigOptions(auth.context, active.taskId),
+    });
+    return [
+      createOutbound(message.actor, msg(auth.locale, "permissionsChanged", { mode: option.label })),
+    ];
+  }
+
   async function handleTaskList(message: BotInboundMessage): Promise<BotOutboundMessage[]> {
     const auth = await withAuthorizedContext(message, "task");
     if (!auth.ok) {
       return auth.reply;
     }
     if (message.actor.threadId) return createStatusReply(message.actor, auth.context, auth.locale);
+    const describeTaskIcon = (task: ZCodeTaskMeta): string => {
+      // 当前任务挂起审批/问答时优先显示等待图标，比“运行中”更接近用户需要的操作提示。
+      if (
+        task.taskId === auth.context.activeTaskId &&
+        (auth.context.pendingElicitation || (auth.context.pendingPermissionOptions?.length ?? 0) > 0)
+      ) {
+        return "⏸";
+      }
+      return taskStatusIcon(taskStatus(task));
+    };
     const blockReason = await getContextTaskBlockReason(auth.context);
     if (blockReason) {
-      // Bugfix: 运行中展示 /task 列表会让用户继续点选其它 task，
-      // 即使后续切换被拒绝，也会留下误导性的 pending selection。
-      return [createOutbound(message.actor, msg(auth.locale, blockReason))];
+      // 运行/排队/等待交互期间不能切换任务，但列表本身保持可见（只读）：
+      // 图标标出每个任务的状态并附带当前任务进展，替代之前的一句拒绝。
+      const blockedEntries = (
+        await listContextTaskSelectionEntries(auth.context, auth.user)
+      ).slice(0, 10);
+      if (blockedEntries.length === 0) {
+        // 没有可展示的列表时保持旧行为：只回报阻塞原因。
+        return [createOutbound(message.actor, msg(auth.locale, blockReason))];
+      }
+      const lines = blockedEntries.map(
+        (entry, index) =>
+          `${index + 1}. ${describeTaskIcon(entry.task)} ${entry.task.title} (${taskStatus(entry.task)})${
+            entry.task.taskId === auth.context.activeTaskId ? " · current" : ""
+          }`,
+      );
+      const activeProgress = auth.context.activeTaskId
+        ? (liveStatusProgressByTaskId.get(auth.context.activeTaskId)?.text ?? null)
+        : null;
+      return [
+        createOutbound(
+          message.actor,
+          [
+            msg(auth.locale, "taskListReadOnlyTitle"),
+            ...lines,
+            ...(activeProgress
+              ? [`${msg(auth.locale, "statusProgress")}: ${activeProgress}`]
+              : []),
+            "",
+            msg(auth.locale, blockReason),
+          ].join("\n"),
+        ),
+      ];
     }
     const taskEntries = (await listContextTaskSelectionEntries(auth.context, auth.user)).slice(
       0,
@@ -7926,8 +8426,10 @@ export function createBotsService(
       action: "task.set",
       options: taskEntries.map((entry) => ({
         id: entry.task.taskId,
-        label: entry.task.title,
-        description: taskStatus(entry.task),
+        label: `${describeTaskIcon(entry.task)} ${entry.task.title}`,
+        description: `${taskStatus(entry.task)}${
+          entry.task.taskId === auth.context.activeTaskId ? " · current" : ""
+        }`,
       })),
     };
     if (taskEntries.length > 0) {
@@ -8814,6 +9316,13 @@ export function createBotsService(
             return handleHelp(message);
           case "status":
             return handleStatus(message);
+          case "progress":
+            // /progress 与 /status 同源同权限，只聚焦当前任务的执行进展。
+            return handleStatus(message);
+          case "permissions":
+            return handlePermissionsList(message);
+          case "permissions.set":
+            return handlePermissionsSet(message, command.value);
           case "reconnect":
             return handleReconnect(message);
           case "new": {
@@ -9468,6 +9977,30 @@ export function createBotsService(
               stopGroupSynchronization(auth.context);
             await restoreGroupSynchronization(nextContext);
             pendingTaskSelectionsByContext.delete(getActorContextKey(message.actor));
+            // 接手被提醒的会话：把安静的 foreign watcher 里暂存的待审批选项写回 context，
+            // 并重发带按钮的审批提示，用户无需回 App 也能当场处理。
+            const foreignKey = foreignWatchKey(auth.bot.id, task.taskId);
+            const foreignEntry = foreignTaskWatchers.get(foreignKey);
+            if (foreignEntry) {
+              const pendingPermission = foreignEntry.pendingPermission;
+              foreignEntry.dispose();
+              foreignTaskWatchers.delete(foreignKey);
+              if (pendingPermission) {
+                await writeContext(
+                  { ...nextContext, pendingPermissionOptions: pendingPermission.options },
+                  false,
+                  nextContext.activeTaskId,
+                );
+                const [permissionReply] = await createSelectionReply(
+                  message.actor,
+                  pendingPermission.selection,
+                  auth.locale,
+                );
+                if (permissionReply) {
+                  await sendOutbound(auth.bot, permissionReply);
+                }
+              }
+            }
             return createStatusReply(message.actor, nextContext, auth.locale);
           }
           case "reply.list": {
@@ -9733,7 +10266,22 @@ export function createBotsService(
             startTyping(auth.bot, message.actor, auth.context.activeTaskId);
             return [createOutbound(message.actor, msg(auth.locale, "permissionDenied"))];
           }
-          case "unknown":
+          case "unknown": {
+            // 自定义命令：命中 bot 配置的 customCommands 时展开为 prompt，
+            // 走与普通消息完全相同的链路（授权、workspace、任务派发）。
+            const customBot = findBot(await repo.readConfig(), message.botId);
+            const customCommand = customBot?.customCommands?.find(
+              (item) => item.name === command.name,
+            );
+            if (customCommand) {
+              const customRest = command.raw.replace(/^\/[^\s]+\s*/u, "").trim();
+              const expanded = `${customCommand.prompt}${customRest ? `\n\n${customRest}` : ""}`;
+              return handleMessage({
+                ...message,
+                text: expanded,
+                commandText: undefined,
+              });
+            }
             return [
               createOutbound(
                 message.actor,
@@ -9742,6 +10290,7 @@ export function createBotsService(
                 }),
               ),
             ];
+          }
           case "message":
             return handleMessage(message);
         }
@@ -9816,6 +10365,7 @@ export function createBotsService(
       }
       streamSubscriptions.clear();
       taskStreamHub.dispose();
+      disposeForeignTaskWatchers();
       if (privateRecoveryTimer) clearInterval(privateRecoveryTimer);
       privateImTraces.clear();
       privateWatches.clear();
@@ -9849,6 +10399,7 @@ export function createBotsService(
     },
   };
   if (runStartupBackgroundTasks) {
+    startForeignTaskSweeper();
     // 远端连接没有 Bot 专属事件源；只检查已存在的连接，不建立额外连接或重放历史。
     privateRecoveryTimer = setInterval(() => {
       if (shutdownPromise || privateRecoveryPending) return;

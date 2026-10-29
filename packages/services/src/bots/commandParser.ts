@@ -83,6 +83,12 @@ export function parseBotCommand(text: string): BotCommand {
       return rest ? { type: "thoughtLevel.set", value: rest } : { type: "thoughtLevel.list" };
     case "task":
       return rest ? { type: "task.set", value: rest } : { type: "task.list" };
+    case "progress":
+    case "进展":
+      return { type: "progress" };
+    case "permissions":
+    case "perms":
+      return rest ? { type: "permissions.set", value: rest } : { type: "permissions" };
     case "reply":
     case "回复":
       return rest ? { type: "reply.set", value: rest } : { type: "reply.list" };

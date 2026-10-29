@@ -45,10 +45,13 @@ const telegramCommandDescriptions = {
   status: "Show current status",
   new: "Create a new task",
   workspace: "Select project",
+  task: "Select chat in project",
   model: "Select model",
   mode: "Select mode",
+  permissions: "Set permission level",
   thoughtLevel: "Select thinking level",
   reply: "Select reply detail",
+  progress: "Show task progress",
 } as const;
 
 const telegramCommandNames = {
@@ -57,10 +60,13 @@ const telegramCommandNames = {
   status: "status",
   new: "new",
   workspace: "project",
+  task: "task",
   model: "model",
   mode: "mode",
+  permissions: "permissions",
   thoughtLevel: "think",
   reply: "reply",
+  progress: "progress",
 } as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -318,12 +324,17 @@ function decodeTelegramCallbackData(data: string): string {
 }
 
 function buildTelegramCommands(bot: BotConfig): TelegramBotCommand[] {
-  return BOT_MENU_COMMAND_ORDER.filter(
+  const builtinCommands = BOT_MENU_COMMAND_ORDER.filter(
     (command) => command === "help" || command === "bind" || bot.allowedCommands[command] !== false,
   ).map((command) => ({
     command: telegramCommandNames[command],
     description: telegramCommandDescriptions[command],
   }));
+  const customCommands = (bot.customCommands ?? []).map((custom) => ({
+    command: custom.name,
+    description: (custom.description?.trim() || custom.prompt).slice(0, 256),
+  }));
+  return [...builtinCommands, ...customCommands];
 }
 
 export function createTelegramBotProvider(deps: TelegramProviderDeps): BotProviderAdapter {
@@ -343,6 +354,33 @@ export function createTelegramBotProvider(deps: TelegramProviderDeps): BotProvid
       return null;
     }
     return response.payload ?? {};
+  }
+
+  async function sendVoice(bot: BotConfig, message: BotOutboundMessage): Promise<boolean> {
+    const token = await loadToken(bot);
+    if (!token?.trim() || !message.voice) {
+      return false;
+    }
+    // Telegram caption 上限 1024 字符；语音本体必须是 OGG/Opus 才会以语音条展示。
+    const caption = message.text.trim().slice(0, 1024);
+    const form = new FormData();
+    form.append("chat_id", message.providerUserId);
+    if (caption) {
+      form.append("caption", caption);
+    }
+    form.append(
+      "voice",
+      new Blob([new Uint8Array(message.voice.data)], { type: "audio/ogg" }),
+      message.voice.filename,
+    );
+    const response = await fetchBotProviderJson<{
+      ok?: boolean;
+      description?: string;
+    }>(`https://api.telegram.org/bot${token}/sendVoice`, {
+      method: "POST",
+      body: form,
+    });
+    return response.ok && response.payload?.ok === true;
   }
 
   return {
@@ -399,6 +437,13 @@ export function createTelegramBotProvider(deps: TelegramProviderDeps): BotProvid
     async send(bot: BotConfig, message: BotOutboundMessage) {
       const token = await loadToken(bot);
       if (!token?.trim()) throw new Error("Telegram bot token is missing");
+      if (message.voice) {
+        // 语音摘要属于增强投递：sendVoice 失败时回落到纯文本，不让 TTS 故障吞掉完成通知。
+        const voiceSent = await sendVoice(bot, message).catch(() => false);
+        if (voiceSent) {
+          return;
+        }
+      }
       const selection = message.selection;
       const replyMarkup = selection ? buildSelectionReplyMarkup(selection) : undefined;
       const chunks = splitTelegramText(message.text);

@@ -96,6 +96,12 @@ export interface BotAllowedCommands {
   thoughtLevel: boolean;
   sandboxMode?: boolean;
   approvalPolicy?: boolean;
+  /** 会话选择命令；缺省视为开启，与 /task 隐藏命令时代的行为保持兼容。 */
+  task?: boolean;
+  /** /progress 进展命令；缺省视为开启，权限跟随 status。 */
+  progress?: boolean;
+  /** /permissions 权限级别命令；缺省视为开启，权限跟随 mode。 */
+  permissions?: boolean;
   reply: boolean;
 }
 
@@ -109,6 +115,17 @@ export interface BotCurrentOptions {
 }
 
 export type BotReplyMode = BotReplyGranularity;
+
+/**
+ * 用户自定义 /命令：不进 allowedCommands 策略（等价于 message 输入），
+ * 由服务在 unknown 命令分支展开成 prompt 后走正常消息链路。
+ */
+export interface BotCustomCommand {
+  /** Telegram 命令规则：小写字母/数字/下划线，1-32 字符。 */
+  name: string;
+  description?: string;
+  prompt: string;
+}
 
 export interface BotConfig {
   id: string;
@@ -126,6 +143,12 @@ export interface BotConfig {
   allowedCommands: BotAllowedCommands;
   currentOptions: BotCurrentOptions;
   replyMode: BotReplyMode;
+  /** 自定义命令列表；存在时会同步进 Telegram setMyCommands 菜单。 */
+  customCommands?: BotCustomCommand[];
+  /** 语音转文字；仅在配置了 STT 后端时生效，默认开启。 */
+  voiceTranscription?: boolean;
+  /** 任务完成后追加语音摘要；仅在配置了 TTS 后端时生效，默认关闭。 */
+  voiceSummary?: boolean;
 }
 
 export interface BotPendingPermissionOption {
@@ -532,6 +555,9 @@ export type BotCommand =
   | { type: "thoughtLevel.set"; value: string }
   | { type: "task.list" }
   | { type: "task.set"; value: string }
+  | { type: "progress" }
+  | { type: "permissions" }
+  | { type: "permissions.set"; value: string }
   | { type: "reply.list" }
   | { type: "reply.set"; value: string }
   | { type: "stop" }
@@ -560,6 +586,7 @@ export interface SelectionPrompt {
     | "mode.set"
     | "thoughtLevel.set"
     | "task.set"
+    | "permissions.set"
     | "reply.set"
     | "permission.respond"
     | "elicitation.respond";
@@ -623,6 +650,16 @@ export interface BotOutboundMessage {
   groupTaskId?: string;
   /** 可信任务事件中的输入命令，用于将投递状态定位到对应回复。 */
   groupSourceCommandId?: string;
+  /**
+   * 语音回复（如任务完成摘要）。Telegram 走 sendVoice（OGG/Opus）；
+   * 不支持语音的 provider 忽略音频、只发文本。
+   */
+  voice?: BotOutboundVoice;
+}
+
+export interface BotOutboundVoice {
+  data: Uint8Array;
+  filename: string;
 }
 
 export interface BotTaskSummary {
@@ -704,6 +741,9 @@ export const botAllowedCommandsSchema = z
     thoughtLevel: z.boolean(),
     sandboxMode: z.boolean().optional(),
     approvalPolicy: z.boolean().optional(),
+    task: z.boolean().optional(),
+    progress: z.boolean().optional(),
+    permissions: z.boolean().optional(),
     // 兼容旧 bot-config.json；/cli 命令已移除，新配置不会再写入这个字段。
     cli: z.boolean().optional(),
     reply: z.boolean(),
@@ -777,6 +817,17 @@ const botPendingElicitationSchema = z
   })
   .strict();
 
+export const botCustomCommandSchema = z
+  .object({
+    // Telegram setMyCommands 的命令名规则：小写字母/数字/下划线，1-32 字符。
+    name: z.string().trim().regex(/^[a-z0-9_]{1,32}$/u),
+    description: z.string().trim().max(256).optional(),
+    prompt: z.string().trim().min(1).max(4000),
+  })
+  .strict();
+
+export const botCustomCommandsSchema = z.array(botCustomCommandSchema).max(20);
+
 export const botConfigSchema = z
   .object({
     id: z.string().min(1),
@@ -799,6 +850,9 @@ export const botConfigSchema = z
       "summary_changes",
       "streaming_card",
     ]),
+    customCommands: botCustomCommandsSchema.optional(),
+    voiceTranscription: z.boolean().optional(),
+    voiceSummary: z.boolean().optional(),
   })
   .strict();
 

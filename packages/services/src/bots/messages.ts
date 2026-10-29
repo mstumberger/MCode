@@ -30,6 +30,7 @@ const messages = {
     helpStatus: "**/状态** — 查看工作区、模型和任务状态",
     helpNew: "/新建 或 /clear — 开始新的任务草稿",
     helpWorkspace: "**/项目** — 切换工作区",
+    helpTask: "**/task** — 选择项目中的会话",
     helpModel: "**/模型** — 切换模型",
     helpMode: "**/模式** — 切换运行模式",
     helpThoughtLevel: "**/思考** — 切换思考级别",
@@ -116,6 +117,17 @@ const messages = {
     taskRunning: "当前任务正在运行，稍后再试，或使用 **/停止** 停止当前任务。",
     taskSelectTitle: "当前任务 {task}\n选择任务",
     noHistoryTasks: "当前 workspace 没有历史任务。",
+    taskListReadOnlyTitle: "任务列表（只读，当前不可切换）：",
+    voiceTranscriptLine: "语音转写：{text}",
+    voiceSummaryCaption: "任务完成摘要（语音）",
+    helpProgress: "**/进展** — 查看当前任务进度",
+    permissionsSelectTitle: "当前权限级别 {mode}\n选择权限级别（减少询问请选 Full access）",
+    permissionsChanged: "权限级别已切换为 {mode}。",
+    foreignTaskAttentionPermission:
+      "🔔 另一个会话「{title}」有权限请求等待处理。当前会话不受影响；点按下方按钮切换过去处理，之后再切回即可。",
+    foreignTaskAttentionElicitation:
+      "🔔 另一个会话「{title}」有问题等待你的回答。当前会话不受影响；点按下方按钮切换过去处理，之后再切回即可。",
+    helpPermissions: "**/permissions** — 设置权限级别（免打扰）",
     remoteDisconnected:
       "当前远端项目 {workspacePath} 未连接。请先发送 **/重连**，连接恢复后再重试。上一条请求未执行。",
     remoteDisconnectedStatus: "当前远端项目 {workspacePath} 未连接。请发送 **/重连** 恢复连接。",
@@ -158,6 +170,7 @@ const messages = {
     helpStatus: "**/status** — Show workspace, model, and task status",
     helpNew: "/new or /clear — Start a new task draft",
     helpWorkspace: "**/project** — Switch workspace",
+    helpTask: "**/task** — Select a chat in the project",
     helpModel: "**/model** — Switch model",
     helpMode: "**/mode** — Switch run mode",
     helpThoughtLevel: "**/think** — Switch thought level",
@@ -248,6 +261,18 @@ const messages = {
       "The current task is still running. Try again later, or use **/stop** to stop the current task.",
     taskSelectTitle: "Current task {task}\nSelect task",
     noHistoryTasks: "There are no history tasks in the current workspace.",
+    taskListReadOnlyTitle: "Tasks (read-only; switching is unavailable right now):",
+    voiceTranscriptLine: "Voice transcript: {text}",
+    voiceSummaryCaption: "Task summary (voice)",
+    helpProgress: "**/progress** — Show current task progress",
+    permissionsSelectTitle:
+      "Current permission level {mode}\nSelect permission level (choose Full access for fewer prompts)",
+    permissionsChanged: "Permission level changed to {mode}.",
+    foreignTaskAttentionPermission:
+      "🔔 Another chat \"{title}\" has a permission request waiting. Your current chat is unaffected; tap below to switch over, handle it, then switch back anytime.",
+    foreignTaskAttentionElicitation:
+      "🔔 Another chat \"{title}\" has a question waiting for your answer. Your current chat is unaffected; tap below to switch over, handle it, then switch back anytime.",
+    helpPermissions: "**/permissions** — Set permission level (fewer prompts)",
     remoteDisconnected:
       "The remote workspace {workspacePath} is not connected. Send **/reconnect** first, then try again. The previous request was not executed.",
     remoteDisconnectedStatus:

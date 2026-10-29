@@ -15,6 +15,28 @@ export function taskStatus(task: ZCodeTaskMeta): string {
   return task.status ?? "running";
 }
 
+/**
+ * 任务列表状态图标。运行态用 🟢，等待审批/回答由调用方结合 pending 交互改判 ⏸，
+ * 终态只区分成功/失败，其余未知状态一律中性圆点。
+ */
+export function taskStatusIcon(status: string): string {
+  switch (status) {
+    case "streaming":
+    case "creating":
+    case "restoring":
+    case "running":
+      return "🟢";
+    case "completed":
+      return "✅";
+    case "failed":
+    case "error":
+    case "persisted-error":
+      return "❌";
+    default:
+      return "⚪";
+  }
+}
+
 export function formatTaskRunningDuration(durationMs: number): string {
   const safeDurationMs = Math.max(durationMs, 0);
   const days = Math.floor(safeDurationMs / MS_IN_DAY);

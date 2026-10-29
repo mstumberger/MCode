@@ -125,5 +125,6 @@
     "wdio-electron-service": "^9.2.1",
     "webdriverio": "^9.27.0"
   },
-  "productName": "ZCode"
+  "productName": "ZCode",
+  "version": "3.16.2"
 }

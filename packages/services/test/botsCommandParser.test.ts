@@ -41,6 +41,14 @@ describe("bots command parser", () => {
     });
     expect(parseBotCommand("/回答 完成")).toEqual({ type: "elicitation.submit" });
     expect(parseBotCommand("/bind ABC123")).toEqual({ type: "bind", code: "ABC123" });
+    expect(parseBotCommand("/progress")).toEqual({ type: "progress" });
+    expect(parseBotCommand("/进展")).toEqual({ type: "progress" });
+    expect(parseBotCommand("/permissions")).toEqual({ type: "permissions" });
+    expect(parseBotCommand("/perms")).toEqual({ type: "permissions" });
+    expect(parseBotCommand("/permissions yolo")).toEqual({
+      type: "permissions.set",
+      value: "yolo",
+    });
   });
 
   it("parses Chinese aliases for top-level commands", () => {
