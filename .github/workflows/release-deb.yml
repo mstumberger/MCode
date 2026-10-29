@@ -33,10 +33,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Linux packages
+      - name: Build Linux .deb
         working-directory: packages/desktop
         env:
           ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
+          # config builds AppImage/deb/rpm/pacman by default; we only ship .deb
+          ZCODE_BUILDER_TARGETS: deb
         run: pnpm bundle --os linux --arch x64
 
       - name: Upload .deb as workflow artifact

@@ -716,8 +716,17 @@ async function main() {
     osBuilderFlagMap[os],
     archBuilderFlagMap[arch],
   ];
+  // 可选的 target 过滤：ZCODE_BUILDER_TARGETS="deb" 或 "deb,AppImage"。
+  // 只影响 electron-builder 实际打包哪些 target（例如 CI 只需要 deb），prepare/build 阶段不变。
+  const builderTargets = (process.env.ZCODE_BUILDER_TARGETS ?? "")
+    .split(",")
+    .map((target) => target.trim())
+    .filter(Boolean);
+  if (builderTargets.length > 0) {
+    buildArgs.push(`--config.${os}.target=${builderTargets.join(",")}`);
+  }
 
-  console.log(`[bundle] target=${os}/${arch}`);
+  console.log(`[bundle] target=${os}/${arch}${builderTargets.length > 0 ? ` [${builderTargets.join(",")}]` : ""}`);
   console.log(`[bundle] skipPrepare=${skipPrepare} skipBuild=${skipBuild}`);
 
   const buildEnv = {
