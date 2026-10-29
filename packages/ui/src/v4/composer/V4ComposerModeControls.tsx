@@ -40,7 +40,8 @@ import type { V4ComposerToolbarProps } from "@/v4/composer/V4ComposerToolbar.js"
 
 function noop(): void {}
 
-/** Plan 是独立勾选项，三种权限仍为单选；只编辑草稿，不向 Runtime 发切换命令。 */
+/** Plan 是独立勾选项，三种权限仍为单选；本组件只调用 onSwitchMode 编辑草稿，
+ * 已有 Session 上的权限单选由 SessionPane 即时下发 switchCollaborationMode（Plan 勾选除外）。 */
 function V4ComposerModeSwitchImpl({
   provider,
   draftConfig,

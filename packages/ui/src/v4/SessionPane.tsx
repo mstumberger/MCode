@@ -55,6 +55,7 @@ import type {
   UserInputRow,
   V4ConversationFileChangesResult,
 } from "@zcode/shared/zcode-protocol-v4";
+import { submissionModeSchema } from "@zcode/shared/zcode-protocol-v4";
 import { logger } from "@/logger.js";
 import { PluginUiSessionProvider } from "@/plugin-ui/index.js";
 import {
@@ -4531,12 +4532,23 @@ export function SessionPane({
     ],
   );
 
-  // 模式与模型一样属于下一次 Submission；选择时只更新 Composer。
+  // 模式与模型不同：权限判定在每次工具调用时读取运行态 mode（core call-runner getMode）。
+  // 已有 Session 点击选择器须立即下发 switchCollaborationMode，运行中的 turn 从下一个
+  // 工具调用起生效。修复原因：此前 mode 只随下一次 Submission 下发，用户在 agent 工作中
+  // 切到 Full access 后权限弹窗仍不断出现。模型选择仍只属于下一次 Submission。
   const handleSwitchMode = useCallback(
     (mode: string) => {
       handleDraftSwitchMode(mode);
+      if (!sessionId || mode === "plan" || mode === "plan-off") return;
+      if (!submissionModeSchema.safeParse(mode).success) return;
+      const projectedMode =
+        snapshotRef.current?.sessionId === sessionId ? snapshotRef.current.config?.mode : undefined;
+      if (projectedMode === mode) return;
+      void configCommandBarrier.enqueue(() =>
+        dispatchConfigCas("switchCollaborationMode", { mode }),
+      );
     },
-    [handleDraftSwitchMode],
+    [handleDraftSwitchMode, sessionId, configCommandBarrier, dispatchConfigCas],
   );
 
   // context usage 面板的压缩入口（命令文本 = "/compact"，复用 slash 解析路径）。

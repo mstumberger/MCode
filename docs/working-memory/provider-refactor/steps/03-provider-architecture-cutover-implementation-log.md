@@ -40,6 +40,8 @@ Goal 首轮使用用户 Submission 中冻结的 Selection；自动续轮不保�
 
 Composer 的模型、reasoning 和 mode 选择不再提前发送 `switchModelConfig` 或 `switchCollaborationMode`。Renderer 在发送时通过 `resolveComposerSubmissionConfig()` 形成完整 Submission；App Recent 仍在 Submission 被接受后更新。这样选择控件不会再充当 Active Model 或 Session Selection 的可变投影。
 
+修订（mode 运行时生效）：模式选择（不含模型）自此改为双写。已有 Session 上点击选择器立即下发 `switchCollaborationMode`（CAS），运行中的 turn 从下一个工具调用起按新 mode 判定权限（core `call-runner` 每次工具调用读取 `getMode()`）。触发场景：用户在 agent 工作中把 "Ask before changes" 切到 "Full access" 后，权限弹窗仍不断出现——mode 只随下一次 Submission 下发，运行态从未更新。模型与 reasoning 仍只在 Submission 冻结发送（模型切换按 model-step 边界生效）。新增任务草稿（无 Session）仍仅入草稿，随 createSession 生效。
+
 ## 7. 当前切片验证边界
 
 根 workspace TypeScript build 通过；Shared/UI 原子 Submission 专项测试 64 项通过；Core Model 生命周期与 Guide 专项测试 7 项通过。Bootstrap 五个相关文件的 138 项断言全部通过，但既有 fake-timer 超时用例产生三个未处理 rejection，使 Vitest 进程退出 1；这类错误不作为本切片的绿色证明，后续全量验收继续保留该基线风险。CLI 依赖构建到 Bootstrap 时只剩 legacy personal provider importer 的两项既有类型错误。

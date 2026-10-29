@@ -31,6 +31,62 @@
       }
     },
     {
+      "id": "v4-mode-eager-title",
+      "description": "E2E_V4_MODE_EAGER_SEED 首发的 case-local 标题生成响应。",
+      "metadata": {
+        "kind": "common",
+        "timingPolicy": "fast-text",
+        "source": "synthetic",
+        "syntheticReason": "模式即时下发用例的首发同样触发默认 title sidecar；固定 case-local 标题响应，与首用例用 marker 隔离。"
+      },
+      "match": {
+        "method": "POST",
+        "pathIncludes": "/messages",
+        "bodyIncludes": [
+          "Generate a concise title",
+          "E2E_V4_MODE_EAGER_SEED"
+        ]
+      },
+      "response": {
+        "statusCode": 200,
+        "text": {
+          "id": "v4-mode-eager-title",
+          "inputTokens": 64,
+          "outputTokens": 8,
+          "text": "{\"title\":\"V4 Mode Eager E2E\"}"
+        }
+      }
+    },
+    {
+      "id": "v4-mode-eager-seed",
+      "description": "模式选择器即时下发门禁：首轮固定回复，建立可切模式的 session。",
+      "metadata": {
+        "kind": "main",
+        "timingPolicy": "fast-text",
+        "source": "synthetic",
+        "syntheticReason": "即时切换只需一个已存在 session；首轮文案固定，随后的断言不发消息、不消费模型响应。"
+      },
+      "maxMatches": 1,
+      "match": {
+        "method": "POST",
+        "pathIncludes": "/messages",
+        "lastUserMessageIncludes": ["E2E_V4_MODE_EAGER_SEED"],
+        "bodyExcludes": [
+          "Generate a concise title",
+          "CRITICAL: Respond with TEXT ONLY"
+        ]
+      },
+      "response": {
+        "statusCode": 200,
+        "text": {
+          "id": "v4-mode-eager-seed",
+          "inputTokens": 80,
+          "outputTokens": 8,
+          "text": "V4_MODE_EAGER_SEED_OK"
+        }
+      }
+    },
+    {
       "id": "v4-model-switch-seed",
       "description": "M4 switchModelConfig 门禁：首轮固定回复，建立可切模型的 session。",
       "metadata": {
