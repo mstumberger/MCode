@@ -1,10 +1,18 @@
 // @vitest-environment jsdom
-import { createElement, useState } from "react";
+import { createElement, useState, type ReactNode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelConfigSelect } from "@/ModelConfigSelect.js";
 import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
+
+// Bugfix：radix FocusScope v unmount path razporeja setTimeout(dispatchEvent)；pod obremenjenim
+// CI runnerjem se timer lahko sproži po začetku jsdom teardowna in kot nezavedna napaka
+// ("parameter 1 is not of type 'Event") pade celoten run, čeprav so vsi testi zeleni.
+// Ta test preverja izbiro modela, ne fokusa — FocusScope je tukaj passthrough.
+vi.mock("@radix-ui/react-focus-scope", () => ({
+  FocusScope: ({ children }: { children: ReactNode }) => children,
+}));
 
 const groups = [
   {
