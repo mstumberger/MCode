@@ -35,7 +35,7 @@ describe("desktop Linux deep link registration helpers", () => {
 
     expect(command.executablePath).toBe("/home/alice/Downloads/ZCode-2.8.0-linux-x64.AppImage");
     expect(entry).toContain('Exec="/home/alice/Downloads/ZCode-2.8.0-linux-x64.AppImage" %U');
-    expect(entry).toContain("MimeType=x-scheme-handler/zcode;");
+    expect(entry).toContain("MimeType=x-scheme-handler/mcode;x-scheme-handler/zcode;");
   });
 
   it("keeps AppImage sandbox and GPU launch switches for protocol callbacks", async () => {
@@ -110,7 +110,7 @@ describe("desktop Linux deep link registration helpers", () => {
     expect(entry).toContain("Name=ZCode Preview");
     expect(entry).toContain("StartupWMClass=ZCode Preview");
     expect(entry).toContain('Exec="/opt/ZCode Preview/zcode-preview" %U');
-    expect(entry).toContain("MimeType=x-scheme-handler/zcode;");
+    expect(entry).toContain("MimeType=x-scheme-handler/mcode;x-scheme-handler/zcode;");
   });
 
   it("escapes AppImage callback switches before writing desktop Exec", async () => {
@@ -235,6 +235,10 @@ describe("desktop Linux deep link registration helpers", () => {
         },
         {
           command: "xdg-mime",
+          args: ["default", "mcode.desktop", "x-scheme-handler/mcode"],
+        },
+        {
+          command: "xdg-mime",
           args: ["default", "mcode.desktop", "x-scheme-handler/zcode"],
         },
       ]);
@@ -289,7 +293,7 @@ describe("desktop Linux deep link registration helpers", () => {
           "Name=ZCode",
           "Comment=MCode Desktop App",
           'Exec="/home/alice/Downloads/ZCode-2.8.0-linux-x64.AppImage" %U',
-          "MimeType=x-scheme-handler/zcode;",
+          "MimeType=x-scheme-handler/mcode;x-scheme-handler/zcode;",
           "",
         ].join("\n"),
         "utf8",
@@ -316,6 +320,10 @@ describe("desktop Linux deep link registration helpers", () => {
         {
           command: "update-desktop-database",
           args: [join(homeDir, ".local", "share", "applications")],
+        },
+        {
+          command: "xdg-mime",
+          args: ["default", "mcode.desktop", "x-scheme-handler/mcode"],
         },
         {
           command: "xdg-mime",
@@ -419,6 +427,10 @@ describe("desktop Linux deep link registration helpers", () => {
         {
           command: "update-desktop-database",
           args: [join(homeDir, ".local", "share", "applications")],
+        },
+        {
+          command: "xdg-mime",
+          args: ["default", "mcode.desktop", "x-scheme-handler/mcode"],
         },
         {
           command: "xdg-mime",
@@ -533,6 +545,10 @@ describe("desktop Linux deep link registration helpers", () => {
         },
         {
           command: "xdg-mime",
+          args: ["default", "mcode.desktop", "x-scheme-handler/mcode"],
+        },
+        {
+          command: "xdg-mime",
           args: ["default", "mcode.desktop", "x-scheme-handler/zcode"],
         },
       ]);
@@ -567,7 +583,7 @@ describe("desktop Linux deep link registration helpers", () => {
           "Name=ZCode",
           "Comment=MCode Desktop App",
           'Exec="/home/alice/Downloads/ZCode.AppImage" %U',
-          "MimeType=x-scheme-handler/zcode;",
+          "MimeType=x-scheme-handler/mcode;x-scheme-handler/zcode;",
           "",
         ].join("\r\n"),
         "utf8",
@@ -651,6 +667,10 @@ describe("desktop Linux deep link registration helpers", () => {
           {
             command: "update-desktop-database",
             args: [applicationsDir],
+          },
+          {
+            command: "xdg-mime",
+            args: ["default", "mcode.desktop", "x-scheme-handler/mcode"],
           },
           {
             command: "xdg-mime",

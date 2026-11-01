@@ -9,7 +9,9 @@ import {
 } from "./desktopLinuxXdg.js";
 
 const LINUX_DEEP_LINK_DESKTOP_FILE = "mcode.desktop";
+// Preserve list：zcode scheme 的 MIME 注册保持原字面量；rebrand(P1) 在其基础上追加 mcode。
 const LINUX_DEEP_LINK_MIME_TYPE = "x-scheme-handler/zcode";
+const LINUX_DEEP_LINK_MIME_TYPES = ["x-scheme-handler/mcode", LINUX_DEEP_LINK_MIME_TYPE] as const;
 // 归属标记：用于识别用户级 mcode.desktop 是否由本应用写入（历史所有版本都带这行 Comment）。
 const LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER = "Comment=MCode Desktop App";
 
@@ -124,7 +126,7 @@ export function createLinuxDeepLinkDesktopEntry(params: {
     "Type=Application",
     `Icon=${iconName}`,
     "Categories=Development;",
-    `MimeType=${LINUX_DEEP_LINK_MIME_TYPE};`,
+    `MimeType=${LINUX_DEEP_LINK_MIME_TYPES.join(";")};`,
     `StartupWMClass=${productName}`,
     "",
   ].join("\n");
@@ -259,33 +261,39 @@ export function registerLinuxDeepLinkProtocol(options: RegisterLinuxDeepLinkProt
     // AppImage 直跑不会像 deb 安装包一样稳定写入系统 desktop entry。
     // deep link 是 OAuth/支付/工作区打开的核心链路，必须先完成用户级协议处理器刷新；
     // 图标安装是可选增强，放到核心注册成功后独立降级，避免扩大登录回调失败域。
+    // rebrand(P1)：两个 scheme 各自独立 xdg-mime 注册默认处理器——zcode:// 是已发布的
+    // OAuth 回调（Preserve list），mcode:// 是新的主 scheme，缺一都会让对应回调失效。
     const updateResult = runCommand("update-desktop-database", [applicationsDir]);
-    const defaultResult = runCommand("xdg-mime", [
-      "default",
-      LINUX_DEEP_LINK_DESKTOP_FILE,
-      LINUX_DEEP_LINK_MIME_TYPE,
-    ]);
+    const defaultResults = LINUX_DEEP_LINK_MIME_TYPES.map((mimeType) => ({
+      mimeType,
+      result: runCommand("xdg-mime", ["default", LINUX_DEEP_LINK_DESKTOP_FILE, mimeType]),
+    }));
+    const failedDefaultResults = defaultResults.filter(({ result }) => result.status !== 0);
 
-    if (defaultResult.status === 0) {
-      protocolRegistered = true;
+    protocolRegistered = failedDefaultResults.length === 0;
+    if (protocolRegistered) {
       options.logger.info("[deep-link] Linux 用户级协议注册成功", {
         desktopFilePath,
         executablePath: command.executablePath,
         args: command.args,
         changed,
         systemDesktopEntryPath,
+        mimeTypes: [...LINUX_DEEP_LINK_MIME_TYPES],
       });
     } else {
-      options.logger.warn("[deep-link] Linux 用户级协议注册失败", {
-        desktopFilePath,
-        executablePath: command.executablePath,
-        args: command.args,
-        status: defaultResult.status,
-        signal: defaultResult.signal,
-        timeoutMs: defaultResult.signal === "SIGTERM" ? XDG_COMMAND_TIMEOUT_MS : undefined,
-        error: defaultResult.error?.message,
-        stderr: defaultResult.stderr?.trim(),
-      });
+      for (const { mimeType, result } of failedDefaultResults) {
+        options.logger.warn("[deep-link] Linux 用户级协议注册失败", {
+          desktopFilePath,
+          mimeType,
+          executablePath: command.executablePath,
+          args: command.args,
+          status: result.status,
+          signal: result.signal,
+          timeoutMs: result.signal === "SIGTERM" ? XDG_COMMAND_TIMEOUT_MS : undefined,
+          error: result.error?.message,
+          stderr: result.stderr?.trim(),
+        });
+      }
     }
 
     if (updateResult.error) {

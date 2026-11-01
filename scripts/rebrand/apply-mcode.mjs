@@ -20,7 +20,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { EXCLUDED_PATHS, PRESERVE_LITERALS, PRESERVE_PATTERNS } from "./whitelist.mjs";
+import { EXCLUDED_PATHS, PRESERVE_LITERALS, PRESERVE_POSTCONDITIONS } from "./whitelist.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -30,12 +30,6 @@ function protectedRanges(content) {
   for (const literal of PRESERVE_LITERALS) {
     for (let i = content.indexOf(literal); i !== -1; i = content.indexOf(literal, i + 1)) {
       ranges.push([i, i + literal.length]);
-    }
-  }
-  for (const pattern of PRESERVE_PATTERNS) {
-    pattern.lastIndex = 0;
-    for (const m of content.matchAll(pattern)) {
-      if (m.index !== undefined) ranges.push([m.index, m.index + m[0].length]);
     }
   }
   return ranges;
@@ -127,6 +121,15 @@ const RULES = [
     match: QUOTED_ZCODE,
     replaceFn: mcodeInSpan,
     include: /packages\/desktop\/src\/main\/(forceUpdateGuard|forceUpdatePrompt|desktopOAuthDeepLink)\.ts$/,
+  },
+  {
+    // Fixup after the P0 commit: the p0-desktop-dialogs rule renamed the
+    // workspace-open dialog copy in src/main but not this test's expectations.
+    id: "p0-desktop-dialogs-test-copy",
+    phase: "P0",
+    match: QUOTED_ZCODE,
+    replaceFn: mcodeInSpan,
+    include: /packages\/desktop\/test\/desktopOAuthDeepLink\.test\.ts$/,
   },
   {
     id: "p0-ui-locales",
@@ -391,6 +394,14 @@ const RULES = [
     include: /packages\/desktop\/test\/desktopLinuxDeepLinkRegistration\.test\.ts$/,
     note: "hicolor icon basename assertions follow LINUX_APP_ICON_NAME",
   },
+  {
+    id: "p1-builder-protocols-schemes",
+    phase: "P1",
+    match: 'schemes: ["zcode"],',
+    replace: 'schemes: ["zcode", "mcode"],',
+    include: /packages\/desktop\/electron-builder\.config\.js$/,
+    note: "additive: zcode stays first; guarded by the protocols-keep-zcode postcondition",
+  },
 ];
 
 function parseArgs(argv) {
@@ -471,6 +482,8 @@ function main() {
   let totalFiles = 0;
   let totalMatches = 0;
   const report = [];
+  /** Final content per file as this run leaves it (written, or unchanged). */
+  const finalContents = new Map();
   for (const relPath of files) {
     const abs = join(ROOT, relPath);
     let content;
@@ -488,16 +501,38 @@ function main() {
       fileChanged += result.changed;
       if (result.changed > 0 && args.verbose) report.push(`${rule.id}: ${relPath} (${result.changed})`);
     }
+    finalContents.set(relPath, next);
     if (fileChanged > 0 && next !== content) {
       totalFiles += 1;
       totalMatches += fileChanged;
       if (!args.dryRun) writeFileSync(abs, next);
     }
   }
+  assertPostconditions(finalContents);
   console.log(
     `${args.dryRun ? "[dry-run] " : ""}phase ${args.phase}: ${totalMatches} replacements in ${totalFiles} files`,
   );
   if (args.verbose) report.forEach((line) => console.log(`  ${line}`));
+}
+
+/**
+ * Post-run preserve invariants (scripts/rebrand/whitelist.mjs). Evaluated on the
+ * content this run leaves behind: files this run touched use the rewritten
+ * content, everything else is read from disk. Throws before exiting 0, in both
+ * dry-run and apply modes, if a protected registration lost "zcode".
+ */
+function assertPostconditions(finalContents) {
+  for (const postcondition of PRESERVE_POSTCONDITIONS) {
+    const targets = listTrackedFiles().filter((f) => !isExcluded(f) && postcondition.include.test(f));
+    for (const relPath of targets) {
+      const content = finalContents.get(relPath) ?? readFileSync(join(ROOT, relPath), "utf8");
+      if (!postcondition.assert(content)) {
+        throw new Error(
+          `preserve postcondition violated: ${postcondition.id} no longer holds for ${relPath}`,
+        );
+      }
+    }
+  }
 }
 
 main();

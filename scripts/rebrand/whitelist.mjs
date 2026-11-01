@@ -38,14 +38,23 @@ export const PRESERVE_LITERALS = [
 ];
 
 /**
- * Regexes whose matched ranges must survive untouched. Used for literals that
- * are themselves regex-shaped or where exact strings are impractical.
+ * Post-run invariants checked AFTER rules apply (and on --dry-run): file-content
+ * assertions that must hold once the rebrand layer has run. Used where span
+ * protection is too blunt: the deep-link registration is ADDITIVE (mcode:// is
+ * registered alongside zcode://), so a rule may touch those lines, but "zcode"
+ * must never drop out of the registration (spec Preserve list item 7).
  */
-export const PRESERVE_PATTERNS = [
-  // Deep-link scheme registration alongside mcode:// (OAuth redirect lives here).
-  /x-scheme-handler\/zcode/g,
-  // electron-builder protocol schemes list keeps "zcode".
-  /schemes:\s*\[[^\]]*"zcode"[^\]]*\]/g,
+export const PRESERVE_POSTCONDITIONS = [
+  {
+    id: "electron-builder-protocols-keep-zcode-scheme",
+    include: /packages\/desktop\/electron-builder\.config\.js$/,
+    assert: (content) => /schemes:\s*\[[^\]]*"zcode"[^\]]*\]/.test(content),
+  },
+  {
+    id: "linux-deep-link-registration-keep-zcode-mime",
+    include: /packages\/desktop\/src\/main\/desktopLinuxDeepLinkRegistration\.ts$/,
+    assert: (content) => content.includes("x-scheme-handler/zcode"),
+  },
 ];
 
 /**
