@@ -2243,9 +2243,59 @@ export function createBotsService(
   }
 
   /**
+   * 语音摘要专用：把回复压成可朗读的简短摘要。
+   * 去掉 markdown 标记（链接取文字、去强调/代码符号），再按句子截断到上限，
+   * 回复通常结论在前，因此保留前几句即可代表整条回复；全文仍由文本气泡送达。
+   */
+  function buildSpeechSummary(text: string, maxChars = 350): string {
+    const speakable = text
+      .replace(/\[([^\]]+)\]\([^)]*\)/gu, "$1")
+      .replace(/[*_`#>|]/gu, "")
+      // 语音友好化：孤立破折号/连字符会被 TTS 逐字念成“pomišljaj/crta”，换成逗号停顿；
+      // 省略号念成“pika pika”，收敛为句号；列表符号念成 minus，直接去掉。
+      .replace(/(^|\n)\s*[-*•]\s+/gu, "$1")
+      .replace(/\s[–—-]\s/gu, ", ")
+      .replace(/\.{3,}/gu, ".")
+      .replace(/\n+/gu, ". ")
+      .replace(/[.:;]\s*\./gu, ".")
+      .replace(/([.!?])\s*[.!:;]+\s*/gu, "$1 ")
+      .replace(/\s+/gu, " ")
+      .trim();
+    if (speakable.length <= maxChars) {
+      return speakable;
+    }
+    const sentences = speakable.match(/[^.!?…]+[.!?…]+|\S+$/gu) ?? [speakable];
+    let summary = "";
+    for (const sentence of sentences) {
+      if (summary && (summary + sentence).length > maxChars) break;
+      summary += sentence;
+    }
+    return (summary.trim() || speakable.slice(0, maxChars)).trim();
+  }
+
+  /**
    * 语音转文字：仅在环境变量配置了 STT 后端且该 bot 未显式关闭时尝试。
    * 转写失败静默回落到纯附件行为，不阻塞消息链路。
+   * 返回给 prompt 用的转写文本；约束语言集产生分歧时同时上抛两个 pass，
+   * 由下游 agent 取 coherent 版本（自由检测会把带口音英语误判成近邻语言）。
    */
+  function formatBotVoiceTranscripts(
+    passes: Array<{ language: string; text: string }>,
+  ): string {
+    if (passes.length <= 1) {
+      return passes[0]?.text ?? "";
+    }
+    const first = (passes[0]?.text ?? "").trim().toLowerCase();
+    const allSame = passes.every((entry) => entry.text.trim().toLowerCase() === first);
+    if (allSame) {
+      return passes[0]?.text ?? "";
+    }
+    const lines = passes
+      .map((entry) => `Voice transcript (${entry.language}): ${entry.text}`)
+      .join("\n");
+    return `${lines}\nThe voice message was transcribed once per configured language; use the coherent variant as the user's instruction.`;
+  }
+
   async function transcribeBotAudioAttachment(
     bot: BotConfig,
     attachment: BotInboundAttachment,
@@ -2259,10 +2309,11 @@ export function createBotsService(
       return null;
     }
     try {
-      return await transcribeAudioAttachment(config, {
+      const passes = await transcribeAudioAttachment(config, {
         data,
         attachment: { filename: attachment.filename, mimeType: attachment.mimeType },
       });
+      return passes ? formatBotVoiceTranscripts(passes) : null;
     } catch (error) {
       botsLogger.warn(
         undefined,
@@ -2311,6 +2362,13 @@ export function createBotsService(
       if (!voiceTranscript && cached.kind === "audio") {
         voiceTranscript = await transcribeBotAudioAttachment(bot, cached, resolved.data);
       }
+      if (!isGroup && cached.kind === "audio" && voiceTranscript) {
+        // 行为修复：语音转写成功后，转写文本已进入 prompt（纯语音是正文，带文字时是首行）。
+        // 此时不再把音频作为附件透传给模型，否则“请查看附件”引导会让模型把音频当作待处理
+        // 输入，去加载无关 skill（如 marko-voice）或在读文件上空转，而不直接执行用户指令。
+        // 转写失败（null）时保持原行为：附件透传作为兜底。
+        continue;
+      }
       if (isGroup) {
         // 旧兼容入口只把文件路径拼进正文，既丢失 V4 附件又破坏末尾引用块；群输入只走标准寄存。
         zcodeAttachments.push({
@@ -2349,6 +2407,11 @@ export function createBotsService(
     if (voiceTranscript && trimmed) {
       // 用户已经附上文字时只补一行转写；纯语音消息则直接把转写作为 prompt 正文。
       fileLines.unshift(msg(locale, "voiceTranscriptLine", { text: voiceTranscript }));
+    }
+    if (voiceTranscript) {
+      // 行为要求：回复语言必须跟随语音消息本身（正文与语音摘要一致），避免混合语言会话中
+      // 模型回退到界面语言或默认英文。模型通常会跟随输入语言，这里做显式约束。
+      fileLines.push("Reply in the same language as the transcribed voice message.");
     }
     const baseContent =
       trimmed ||
@@ -6248,7 +6311,11 @@ export function createBotsService(
           .map((part) => part.content)
           .join("")
           .trim();
-        await sendCompletionVoiceSummary(replyMessages.join("\n\n") || streamedAssistantText);
+        // 语音只播报简短摘要：清除 markdown 标记后按句子截断（回复通常结论在前），
+        // 避免把整段回复念完。完整内容仍以文本气泡送达。
+        await sendCompletionVoiceSummary(
+          buildSpeechSummary(replyMessages.join("\n\n") || streamedAssistantText),
+        );
       }
     };
     const handleStreamEvent = async (
