@@ -716,8 +716,23 @@ async function main() {
     osBuilderFlagMap[os],
     archBuilderFlagMap[arch],
   ];
+  // 可选的 target 过滤：ZCODE_BUILDER_TARGETS="deb" 或 "deb,AppImage"。
+  // 只影响 electron-builder 实际打包哪些 target（例如 CI 只需要 deb），prepare/build 阶段不变。
+  const builderTargets = (process.env.ZCODE_BUILDER_TARGETS ?? "")
+    .split(",")
+    .map((target) => target.trim())
+    .filter(Boolean);
+  if (builderTargets.length > 0) {
+    buildArgs.push(`--config.${os}.target=${builderTargets.join(",")}`);
+  }
+  // 可选的版本注入：ZCODE_BUILDER_VERSION=3.16.3-m1 让安装包版本来自 release tag，
+  // 不再依赖 desktop package.json 的静态 version（避免 tag 与包版本错位导致 dpkg 视为降级）。
+  const builderVersion = process.env.ZCODE_BUILDER_VERSION?.trim();
+  if (builderVersion) {
+    buildArgs.push(`--config.extraMetadata.version=${builderVersion}`);
+  }
 
-  console.log(`[bundle] target=${os}/${arch}`);
+  console.log(`[bundle] target=${os}/${arch}${builderTargets.length > 0 ? ` [${builderTargets.join(",")}]` : ""}`);
   console.log(`[bundle] skipPrepare=${skipPrepare} skipBuild=${skipBuild}`);
 
   const buildEnv = {

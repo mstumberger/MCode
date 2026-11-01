@@ -1,0 +1,86 @@
+# PR validation: the repo's own gates — lint, full typecheck, architecture
+# governance, sqlite schema contract, and the unit test suite.
+name: pr-validation
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # architecture:check --changed diffs against the base branch
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (oxlint)
+        run: pnpm lint
+
+      - name: Typecheck (all packages)
+        run: pnpm typecheck
+
+      - name: Architecture governance tests
+        run: pnpm test:architecture
+
+      - name: SQLite schema contract
+        run: pnpm db:schema:check
+
+      - name: Architecture check (changed files)
+        run: pnpm architecture:check -- --changed
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages needed by unit tests
+        # Several suites import @zcode/e2e-report and @zcode/adapters/storage,
+      # whose package entries point at built dist/ output. adapters also
+      # resolves types from @zcode/contracts and @zcode/dynamic-workflow,
+      # so the chain must be built bottom-up on a fresh checkout.
+        run: |
+          pnpm --filter @zcode/contracts build
+          pnpm --filter @zcode/dynamic-workflow build
+          pnpm --filter @zcode/e2e-report build:node
+          pnpm --filter @zcode/adapters build
+
+      - name: Unit tests
+        # threads pool workerji na 16GB runnerju po nepotrebnem tekmujejo za heap
+        # (ERR_WORKER_OUT_OF_MEMORY kljub zelenim testom); forks = procesna
+        # izolacija, ki jo repo že podpira prek ZCODE_TEST_POOL, isti testni obseg.
+        env:
+          ZCODE_TEST_POOL: forks
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm test:unit -- --poolOptions.forks.maxForks=2
