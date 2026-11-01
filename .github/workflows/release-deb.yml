@@ -99,6 +99,12 @@ jobs:
           # same value the package.json was just bumped to — keeps name and
           # dpkg version consistent even if injection and bump ever diverge
           ZCODE_BUILDER_VERSION: ${{ inputs.version }}
+          # release builds ship the production identity: production builtin
+          # provider config, productName MCode, deb package "mcode" and no
+          # _TEST artifact suffix. Without this the environment defaults to
+          # "test", which by design forces Preview identity + _TEST suffix
+          # (test-backend builds must never overwrite a production install).
+          ZCODE_ENV: production
         run: pnpm bundle --os linux --arch x64
 
       - name: Upload .deb as workflow artifact

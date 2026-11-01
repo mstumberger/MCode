@@ -145,7 +145,7 @@ export class ZCodeProtocolNdjsonConnection {
       this.buffer = "";
     }
     this.draining = true;
-    this.notifyTransportClosed(new Error("ZCode Protocol client connection closed"));
+    this.notifyTransportClosed(new Error("MCode Protocol client connection closed"));
     // EOF 保留短请求半关闭响应，但挂起 handler 不能让进程永久保活。
     this.drainTimer = setTimeout(() => this.finish(), PROTOCOL_EOF_DRAIN_MS);
     void this.processing.then(
@@ -155,7 +155,7 @@ export class ZCodeProtocolNdjsonConnection {
   };
 
   private readonly onAbort = (): void => {
-    this.notifyTransportClosed(new Error("ZCode Protocol runtime stopping"));
+    this.notifyTransportClosed(new Error("MCode Protocol runtime stopping"));
     this.finish();
   };
 
@@ -269,7 +269,7 @@ export class ZCodeProtocolNdjsonConnection {
     try {
       decoded = JSON.parse(line);
     } catch (error) {
-      this.options.logger?.warn("ZCode Protocol JSON parse failed", {
+      this.options.logger?.warn("MCode Protocol JSON parse failed", {
         error: error instanceof Error ? error.message : String(error),
         event: "zcode_protocol.parse.failed",
         module: "bootstrap.zcode_protocol",

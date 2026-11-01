@@ -1,6 +1,41 @@
 import { describe, expect, it } from "vitest";
 
 describe("desktop deep link url helpers", () => {
+  it("accepts the mcode scheme alongside the preserved zcode scheme", async () => {
+    const {
+      isOAuthCallbackUrl,
+      isPaymentCallbackUrl,
+      isWorkspaceOpenUrl,
+      isShareImportUrl,
+      extractWorkspaceOpenPath,
+      extractShareImportCode,
+      extractDeepLinkUrlFromArgs,
+      DEEP_LINK_SCHEMES,
+    } = await import("../src/main/desktopDeepLinkUrl.js");
+
+    expect([...DEEP_LINK_SCHEMES]).toEqual(["mcode", "zcode"]);
+    expect(isOAuthCallbackUrl(new URL("mcode://oauth/callback?code=1&state=s"))).toBe(true);
+    expect(isOAuthCallbackUrl(new URL("mcode:/oauth/callback?code=1&state=s"))).toBe(true);
+    expect(isPaymentCallbackUrl(new URL("mcode://payment/callback?status=return"))).toBe(true);
+    expect(isWorkspaceOpenUrl(new URL("mcode://workspace/open?path=%2Ftmp"))).toBe(true);
+    expect(extractWorkspaceOpenPath(new URL("mcode://workspace/open?path=%2Ftmp"))).toBe("/tmp");
+    const shareImportUrl = new URL("mcode://share/import?code=abc_DEF-123");
+    expect(isShareImportUrl(shareImportUrl)).toBe(true);
+    expect(extractShareImportCode(shareImportUrl)).toBe("abc_DEF-123");
+    expect(
+      extractDeepLinkUrlFromArgs(["/opt/MCode/mcode", "mcode://workspace/open?path=%2Ftmp"]),
+    ).toBe("mcode://workspace/open?path=%2Ftmp");
+    expect(
+      extractDeepLinkUrlFromArgs([
+        "/opt/MCode/mcode",
+        "mcode%3A%2F%2Foauth%2Fcallback%3Fcode%3D1%26state%3Ds",
+      ]),
+    ).toBe("mcode://oauth/callback?code=1&state=s");
+    // 未知 scheme 仍然拒绝，避免任何 <word>: URL 都被当成 deep link。
+    expect(isOAuthCallbackUrl(new URL("xcode://oauth/callback?code=1&state=s"))).toBe(false);
+    expect(isWorkspaceOpenUrl(new URL("https://workspace/open?path=%2Ftmp"))).toBe(false);
+  });
+
   it("recognizes only the unified OAuth callback url", async () => {
     const { isOAuthCallbackUrl } = await import("../src/main/desktopDeepLinkUrl.js");
 
@@ -173,7 +208,7 @@ describe("desktop deep link url helpers", () => {
     expect(operations).toContainEqual({
       args: [
         "add",
-        "HKCU\\Software\\Classes\\Directory\\shell\\ZCode.OpenInZCode\\command",
+        "HKCU\\Software\\Classes\\Directory\\shell\\MCode.OpenInMCode\\command",
         "/ve",
         "/d",
         '"C:\\Program Files\\ZCode\\ZCode.exe" --open-workspace "%1"',
@@ -183,7 +218,7 @@ describe("desktop deep link url helpers", () => {
     expect(operations).toContainEqual({
       args: [
         "add",
-        "HKCU\\Software\\Classes\\Drive\\shell\\ZCode.OpenInZCode\\command",
+        "HKCU\\Software\\Classes\\Drive\\shell\\MCode.OpenInMCode\\command",
         "/ve",
         "/d",
         '"C:\\Program Files\\ZCode\\ZCode.exe" --open-workspace "%1"',
@@ -196,8 +231,8 @@ describe("desktop deep link url helpers", () => {
     const { buildWindowsOpenFolderRegistryOperations, getWindowsOpenFolderMenuName } =
       await import("../src/main/desktopWindowsOpenFolderContextMenu.js");
 
-    expect(getWindowsOpenFolderMenuName("zh-CN")).toBe("在ZCode中打开");
-    expect(getWindowsOpenFolderMenuName("en-US")).toBe("Open in ZCode");
+    expect(getWindowsOpenFolderMenuName("zh-CN")).toBe("在MCode中打开");
+    expect(getWindowsOpenFolderMenuName("en-US")).toBe("Open in MCode");
 
     const operations = buildWindowsOpenFolderRegistryOperations({
       executablePath: "C:\\Program Files\\ZCode\\ZCode.exe",
@@ -207,23 +242,23 @@ describe("desktop deep link url helpers", () => {
     expect(operations).toContainEqual({
       args: [
         "add",
-        "HKCU\\Software\\Classes\\Directory\\shell\\ZCode.OpenInZCode",
+        "HKCU\\Software\\Classes\\Directory\\shell\\MCode.OpenInMCode",
         "/ve",
         "/d",
-        "在ZCode中打开",
+        "在MCode中打开",
         "/f",
       ],
     });
     expect(operations).toContainEqual({
       args: [
         "add",
-        "HKCU\\Software\\Classes\\Directory\\shell\\ZCode.OpenInZCode",
+        "HKCU\\Software\\Classes\\Directory\\shell\\MCode.OpenInMCode",
         "/v",
         "MUIVerb",
         "/t",
         "REG_SZ",
         "/d",
-        "在ZCode中打开",
+        "在MCode中打开",
         "/f",
       ],
     });

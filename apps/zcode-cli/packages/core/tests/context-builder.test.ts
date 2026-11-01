@@ -99,12 +99,12 @@ describe("ContextBuilder meta user context", () => {
       false,
       false,
     ]);
-    expect(result.systemMessages[0]?.content).toBe("You are ZCode, an interactive coding agent");
+    expect(result.systemMessages[0]?.content).toBe("You are MCode, an interactive coding agent");
 
     const stableBody = String(result.systemMessages[1]?.content ?? "");
     expect(stableBody).toMatch(/^\n?You are an interactive ZCode agent/);
     expect(stableBody).not.toContain("# Agent Identity");
-    expect(stableBody).not.toContain("You are ZCode, an interactive coding agent");
+    expect(stableBody).not.toContain("You are MCode, an interactive coding agent");
     expect(stableBody).toContain("# Harness");
     expect(stableBody).not.toContain("# Session-specific guidance");
     expect(stableBody).not.toContain("# Environment");
@@ -262,7 +262,7 @@ describe("ContextBuilder meta user context", () => {
       cliPrefixPrompt: "legacy override",
     } as any).build();
 
-    expect(result.systemMessages[0]?.content).toBe("You are ZCode, an interactive coding agent");
+    expect(result.systemMessages[0]?.content).toBe("You are MCode, an interactive coding agent");
   });
 
   it("covers default body safety, runtime, and tool-guidance semantic anchors", () => {
@@ -382,7 +382,7 @@ describe("ContextBuilder meta user context", () => {
     expect(result.metaUserAttachments.map((attachment) => attachment.source)).toEqual([
       "context_prefix",
     ]);
-    expect(result.systemMessages[0]?.content).toBe("You are ZCode, an interactive coding agent");
+    expect(result.systemMessages[0]?.content).toBe("You are MCode, an interactive coding agent");
     expect(result.systemMessages[1]?.content).toBe("\nYou are concise for this task.");
     const meta = metaAttachment(result, "context_prefix");
     expect(meta).not.toContain("<system-reminder>");
@@ -817,10 +817,10 @@ describe("ContextBuilder meta user context", () => {
     const stableBody = result.systemMessages[1]?.content ?? "";
     const dynamicSystem = result.systemMessages[2]?.content ?? "";
     const meta = metaAttachment(result, "context_prefix");
-    expect(cliPrefix).toBe("You are ZCode, an interactive coding agent");
+    expect(cliPrefix).toBe("You are MCode, an interactive coding agent");
     expect(stableBody).not.toContain("# Agent Identity");
     expect(stableBody).toMatch(/^\n?You are an interactive ZCode agent/);
-    expect(stableBody).not.toContain("You are ZCode, an interactive coding agent");
+    expect(stableBody).not.toContain("You are MCode, an interactive coding agent");
     expect(stableBody).toContain("# Harness");
     expect(stableBody).not.toContain("# Session-specific guidance");
     expect(stableBody).not.toContain("# Environment");
@@ -1051,7 +1051,7 @@ describe("ContextBuilder meta user context", () => {
       "system",
     ]);
     expect(result.metaUserAttachments).toEqual([]);
-    expect(result.systemMessages[0]?.content).toBe("You are ZCode, an interactive coding agent");
+    expect(result.systemMessages[0]?.content).toBe("You are MCode, an interactive coding agent");
     expect(result.systemMessages[1]?.content).not.toContain("# Agent Identity");
     expect(result.systemMessages[1]?.content).toMatch(/^\n?You are an interactive ZCode agent/);
     expect(result.systemMessages[1]?.content).toContain("# Harness");
@@ -1369,10 +1369,10 @@ describe("ContextBuilder meta user context", () => {
     const prefixSection = buildCliPrefixSection();
     const identitySection = buildIdentitySection();
 
-    expect(prefixSection.content).toBe("You are ZCode, an interactive coding agent");
+    expect(prefixSection.content).toBe("You are MCode, an interactive coding agent");
     expect(identitySection.content).toMatch(/^\n?You are an interactive ZCode agent/);
     expect(identitySection.content).not.toContain("# Agent Identity");
-    expect(identitySection.content).not.toContain("You are ZCode, an interactive coding agent");
+    expect(identitySection.content).not.toContain("You are MCode, an interactive coding agent");
     expect(`${prefixSection.content}\n${identitySection.content}`).not.toContain("${");
     expect(`${prefixSection.content}\n${identitySection.content}`).not.toContain("an AI assistant");
   });
@@ -1563,7 +1563,7 @@ describe("context builder — workflow actor identity", () => {
     ).toBe(true);
     expect(result.sections.map((section) => section.source)).not.toContain("cli_prefix");
     expect(result.systemMessages.map((m) => String(m.content)).join("\n")).not.toContain(
-      "You are ZCode, an interactive coding agent",
+      "You are MCode, an interactive coding agent",
     );
   });
 

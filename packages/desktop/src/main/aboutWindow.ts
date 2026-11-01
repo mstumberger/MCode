@@ -180,14 +180,10 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
               class="app-logo"
               focusable="false"
             >
+              <!-- rebrand(P0): Z 字形替换为 M 字形（与 UI 层 ZCodeAboutLogo 同一 M 路径）。 -->
               <path
                 fill="currentColor"
-                d="M134.4 0.130152L116.48 25.6022C113.665 29.5699 109.054 32.0019 104.064 32.0019H6.3999V0C6.3999 0.130149 134.4 0.130152 134.4 0.130152Z"
-              />
-              <path fill="currentColor" d="M256 0.130127L102.401 217.732H0L153.599 0.130127H256Z" />
-              <path
-                fill="currentColor"
-                d="M121.601 217.732L139.65 192.134C142.465 188.166 147.076 185.734 152.067 185.734H249.604V217.736H121.601V217.732Z"
+                d="M0 0H84L128 96L172 0H256V218H204V106L128 218L52 106V218H0V0Z"
               />
             </svg>
           </div>

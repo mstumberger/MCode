@@ -8,10 +8,12 @@ import {
   type LinuxDeepLinkRegistrationLogger,
 } from "./desktopLinuxXdg.js";
 
-const LINUX_DEEP_LINK_DESKTOP_FILE = "zcode.desktop";
+const LINUX_DEEP_LINK_DESKTOP_FILE = "mcode.desktop";
+// Preserve list：zcode scheme 的 MIME 注册保持原字面量；rebrand(P1) 在其基础上追加 mcode。
 const LINUX_DEEP_LINK_MIME_TYPE = "x-scheme-handler/zcode";
-// 归属标记：用于识别用户级 zcode.desktop 是否由本应用写入（历史所有版本都带这行 Comment）。
-const LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER = "Comment=ZCode Desktop App";
+const LINUX_DEEP_LINK_MIME_TYPES = ["x-scheme-handler/mcode", LINUX_DEEP_LINK_MIME_TYPE] as const;
+// 归属标记：用于识别用户级 mcode.desktop 是否由本应用写入（历史所有版本都带这行 Comment）。
+const LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER = "Comment=MCode Desktop App";
 
 type LinuxDesktopEnv = {
   APPIMAGE?: string;
@@ -109,8 +111,8 @@ export function createLinuxDeepLinkDesktopEntry(params: {
   productName?: string;
   iconName?: string;
 }): string {
-  const productName = params.productName ?? "ZCode";
-  const iconName = params.iconName ?? "zcode";
+  const productName = params.productName ?? "MCode";
+  const iconName = params.iconName ?? "mcode";
   const command = {
     executablePath: params.executablePath,
     args: params.args ?? [],
@@ -124,7 +126,7 @@ export function createLinuxDeepLinkDesktopEntry(params: {
     "Type=Application",
     `Icon=${iconName}`,
     "Categories=Development;",
-    `MimeType=${LINUX_DEEP_LINK_MIME_TYPE};`,
+    `MimeType=${LINUX_DEEP_LINK_MIME_TYPES.join(";")};`,
     `StartupWMClass=${productName}`,
     "",
   ].join("\n");
@@ -188,18 +190,18 @@ function removeOwnedUserDesktopEntry(
     return;
   }
   if (!isOwnedDesktopEntry(desktopFilePath)) {
-    logger.warn("[deep-link] Linux 用户级 zcode.desktop 非本应用写入，保留不清理", {
+    logger.warn("[deep-link] Linux 用户级 mcode.desktop 非本应用写入，保留不清理", {
       desktopFilePath,
     });
     return;
   }
   try {
     rmSync(desktopFilePath);
-    logger.info("[deep-link] 已清理遗留的用户级 zcode.desktop，恢复系统级条目", {
+    logger.info("[deep-link] 已清理遗留的用户级 mcode.desktop，恢复系统级条目", {
       desktopFilePath,
     });
   } catch (error) {
-    logger.warn("[deep-link] 清理遗留用户级 zcode.desktop 失败", { desktopFilePath, error });
+    logger.warn("[deep-link] 清理遗留用户级 mcode.desktop 失败", { desktopFilePath, error });
   }
 }
 
@@ -233,14 +235,14 @@ export function registerLinuxDeepLinkProtocol(options: RegisterLinuxDeepLinkProt
   let protocolRegistered = false;
   const runCommand = options.runCommand ?? runXdgCommand;
 
-  // 用户级 zcode.desktop 在 XDG
+  // 用户级 mcode.desktop 在 XDG
   // 解析中永远优先于系统级同名条目。rpm/deb 安装后，旧 AppImage 写入的用户级条目会把
-  // /usr/share/applications/zcode.desktop 持续遮蔽，快捷方式和 zcode:// deep link 一直
+  // /usr/share/applications/mcode.desktop 持续遮蔽，快捷方式和 zcode:// deep link 一直
   // 指向旧 AppImage（文件还在时）或直接失效（文件被删后），只有手动跑一次新版才会被覆盖。
   // 现在只要检测到系统级同 ID 条目：
   // - 系统安装形态（rpm/deb）运行时：清掉本应用写入的遗留用户级条目，且不再写用户级；
   // - AppImage 运行时：不再写用户级条目和用户级图标，避免旧 AppImage 再度遮蔽系统安装。
-  // 用户手写的自定义 zcode.desktop（无归属标记）不受影响，保留不清理。
+  // 用户手写的自定义 mcode.desktop（无归属标记）不受影响，保留不清理。
   const systemDesktopEntryPath = findSystemLevelDesktopEntryPath(
     options.systemApplicationDirs ?? resolveLinuxSystemApplicationDirs(options.env),
   );
@@ -259,33 +261,39 @@ export function registerLinuxDeepLinkProtocol(options: RegisterLinuxDeepLinkProt
     // AppImage 直跑不会像 deb 安装包一样稳定写入系统 desktop entry。
     // deep link 是 OAuth/支付/工作区打开的核心链路，必须先完成用户级协议处理器刷新；
     // 图标安装是可选增强，放到核心注册成功后独立降级，避免扩大登录回调失败域。
+    // rebrand(P1)：两个 scheme 各自独立 xdg-mime 注册默认处理器——zcode:// 是已发布的
+    // OAuth 回调（Preserve list），mcode:// 是新的主 scheme，缺一都会让对应回调失效。
     const updateResult = runCommand("update-desktop-database", [applicationsDir]);
-    const defaultResult = runCommand("xdg-mime", [
-      "default",
-      LINUX_DEEP_LINK_DESKTOP_FILE,
-      LINUX_DEEP_LINK_MIME_TYPE,
-    ]);
+    const defaultResults = LINUX_DEEP_LINK_MIME_TYPES.map((mimeType) => ({
+      mimeType,
+      result: runCommand("xdg-mime", ["default", LINUX_DEEP_LINK_DESKTOP_FILE, mimeType]),
+    }));
+    const failedDefaultResults = defaultResults.filter(({ result }) => result.status !== 0);
 
-    if (defaultResult.status === 0) {
-      protocolRegistered = true;
+    protocolRegistered = failedDefaultResults.length === 0;
+    if (protocolRegistered) {
       options.logger.info("[deep-link] Linux 用户级协议注册成功", {
         desktopFilePath,
         executablePath: command.executablePath,
         args: command.args,
         changed,
         systemDesktopEntryPath,
+        mimeTypes: [...LINUX_DEEP_LINK_MIME_TYPES],
       });
     } else {
-      options.logger.warn("[deep-link] Linux 用户级协议注册失败", {
-        desktopFilePath,
-        executablePath: command.executablePath,
-        args: command.args,
-        status: defaultResult.status,
-        signal: defaultResult.signal,
-        timeoutMs: defaultResult.signal === "SIGTERM" ? XDG_COMMAND_TIMEOUT_MS : undefined,
-        error: defaultResult.error?.message,
-        stderr: defaultResult.stderr?.trim(),
-      });
+      for (const { mimeType, result } of failedDefaultResults) {
+        options.logger.warn("[deep-link] Linux 用户级协议注册失败", {
+          desktopFilePath,
+          mimeType,
+          executablePath: command.executablePath,
+          args: command.args,
+          status: result.status,
+          signal: result.signal,
+          timeoutMs: result.signal === "SIGTERM" ? XDG_COMMAND_TIMEOUT_MS : undefined,
+          error: result.error?.message,
+          stderr: result.stderr?.trim(),
+        });
+      }
     }
 
     if (updateResult.error) {

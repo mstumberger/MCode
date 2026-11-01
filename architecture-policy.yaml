@@ -886,3 +886,7 @@ exceptions:
       - packages/ui/src/settings/DynamicWorkflowModeSetting.tsx
       - packages/ui/src/store/dynamicWorkflowAvailabilityStore.ts
     reason: Admitted upstream files edited only to let the user's dynamic workflow mode choice always win and keep the settings row visible; adopting packages/shared/src and packages/ui/src needs a separate module boundary refactor.
+  - id: rebrand-runtime-resources-display-string
+    rule: unmanaged-new-file
+    paths: [apps/zcode-cli/packages/bootstrap/src/zcode-protocol/runtime-resources.ts]
+    reason: 已准入的上游文件仅把 assertServing 的可见错误文案 "ZCode Protocol runtime is stopping" 重命名为 MCode（rebrand(P0) 显示名替换层，scripts/rebrand/apply-mcode.mjs）；wire 协议常量 ZCODE_PROTOCOL_NAME 保持 "ZCode Protocol" 原字面量（Preserve list），签名与模块边界不变；接管 zcode-cli 目录不在 rebrand 分支范围内，后续逻辑修改须重新核对模块治理。
