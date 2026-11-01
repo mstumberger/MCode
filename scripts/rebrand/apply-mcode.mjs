@@ -61,6 +61,13 @@ const mcodeInSpan = (span) => span.replaceAll("ZCode", "MCode");
 /** Matches a complete double-quoted string containing ZCode (no newlines). */
 const QUOTED_ZCODE = /"[^"\n]*ZCode[^"\n]*"/;
 
+/** Matches a complete backtick template/comment span containing ZCode (no newlines). */
+const BACKTICK_ZCODE = /`[^`\n]*ZCode[^`\n]*`/;
+
+/** Product identity module + its contract test (same field/value literals). */
+const PRODUCT_IDENTITY_FILES =
+  /packages\/desktop\/(scripts\/desktop-product-identity\.mjs|test\/desktopProductIdentity\.test\.ts)$/;
+
 /** @type {Rule[]} */
 const RULES = [
   // ---- P0: display strings -------------------------------------------------
@@ -94,6 +101,17 @@ const RULES = [
     match: "ZCode Desktop App",
     replace: "MCode Desktop App",
     include: /packages\/desktop\/src\/main\/|packages\/shared\/src\/desktopMenu\.ts$/,
+  },
+  {
+    // Fixup after the P0 commit: the ownership-marker rename above was applied to
+    // src/main but not to the test seeds, leaving 3 registration tests red. At the
+    // (P1) mcode.desktop path only MCode builds ever write entries, so the seeds
+    // must carry the MCode marker exactly like the app writes it.
+    id: "p0-desktop-about-test-seeds",
+    phase: "P0",
+    match: "Comment=ZCode Desktop App",
+    replace: "Comment=MCode Desktop App",
+    include: /packages\/desktop\/test\/desktopLinuxDeepLinkRegistration\.test\.ts$/,
   },
   {
     id: "p0-desktop-menu-strings",
@@ -220,6 +238,158 @@ const RULES = [
     match: '"ZCode - "',
     replace: '"MCode - "',
     include: /packages\/shared\/src\/process-names\.ts$/,
+  },
+
+  // ---- P1: packaging identity ----------------------------------------------
+  // appId / productName / Linux exe+package names, dev AUMID. The identity
+  // module and its contract test share the same field/value literals, so one
+  // include set covers both. Packaging contact metadata (homepage, author
+  // email, deb maintainer) is intentionally NOT scripted: those values embed
+  // the preserve-listed z.ai origin and are swapped surgically per plan.
+  {
+    id: "p1-identity-appid-preview",
+    phase: "P1",
+    match: 'appId: "dev.zcode.app.preview"',
+    replace: 'appId: "dev.mcode.app.preview"',
+    include: PRODUCT_IDENTITY_FILES,
+  },
+  {
+    id: "p1-identity-appid",
+    phase: "P1",
+    match: 'appId: "dev.zcode.app"',
+    replace: 'appId: "dev.mcode.app"',
+    include: PRODUCT_IDENTITY_FILES,
+  },
+  {
+    id: "p1-identity-product-name-preview",
+    phase: "P1",
+    match: 'productName: "ZCode Preview"',
+    replace: 'productName: "MCode Preview"',
+    include: PRODUCT_IDENTITY_FILES,
+  },
+  {
+    id: "p1-identity-product-name",
+    phase: "P1",
+    match: 'productName: "ZCode"',
+    replace: 'productName: "MCode"',
+    include: PRODUCT_IDENTITY_FILES,
+  },
+  {
+    id: "p1-identity-linux-preview-names",
+    phase: "P1",
+    match: '"zcode-preview"',
+    replace: '"mcode-preview"',
+    include: PRODUCT_IDENTITY_FILES,
+    note: "preview linux executable + package name",
+  },
+  {
+    id: "p1-identity-linux-executable",
+    phase: "P1",
+    match: 'linuxExecutableName: "zcode"',
+    replace: 'linuxExecutableName: "mcode"',
+    include: PRODUCT_IDENTITY_FILES,
+  },
+  {
+    id: "p1-identity-linux-package",
+    phase: "P1",
+    match: 'linuxPackageName: "zcode"',
+    replace: 'linuxPackageName: "mcode"',
+    include: PRODUCT_IDENTITY_FILES,
+  },
+  {
+    id: "p1-identity-dev-aumid",
+    phase: "P1",
+    match: '"cn.aminer.zcode"',
+    replace: '"si.stumberger.mcode"',
+    include: PRODUCT_IDENTITY_FILES,
+    note: "dev (unpackaged) Windows AppUserModelId",
+  },
+  {
+    id: "p1-identity-comment-strings",
+    phase: "P1",
+    match: new RegExp(`${QUOTED_ZCODE.source}|${BACKTICK_ZCODE.source}`),
+    replaceFn: mcodeInSpan,
+    include: PRODUCT_IDENTITY_FILES,
+    note: "doc comments + test descriptions quoting the product name",
+  },
+  {
+    id: "p1-builder-quoted-strings",
+    phase: "P1",
+    match: QUOTED_ZCODE,
+    replaceFn: mcodeInSpan,
+    include: /packages\/desktop\/electron-builder\.config\.js$/,
+    note: "author name, productFilename fallback, Preview signing error",
+  },
+  {
+    id: "p1-builder-template-strings",
+    phase: "P1",
+    match: BACKTICK_ZCODE,
+    replaceFn: mcodeInSpan,
+    include: /packages\/desktop\/electron-builder\.config\.js$/,
+    note: "afterPack assertion errors",
+  },
+  {
+    id: "p1-linux-icon-comment",
+    phase: "P1",
+    match: "Icon=zcode",
+    replace: "Icon=mcode",
+    include:
+      /packages\/desktop\/(electron-builder\.config\.js|src\/main\/desktopLinuxAppImageIcon\.ts)$/,
+    note: "comments describing the desktop entry Icon key",
+  },
+  {
+    id: "p1-linux-hicolor-comment",
+    phase: "P1",
+    match: "apps/zcode.png",
+    replace: "apps/mcode.png",
+    include: /packages\/desktop\/electron-builder\.config\.js$/,
+  },
+  {
+    id: "p1-desktop-package-json",
+    phase: "P1",
+    match: QUOTED_ZCODE,
+    replaceFn: mcodeInSpan,
+    include: /packages\/desktop\/package\.json$/,
+    note: 'description/author/productName values; package name @zcode/desktop stays until P4',
+  },
+  {
+    id: "p1-linux-desktop-entry-file",
+    phase: "P1",
+    match: "zcode.desktop",
+    replace: "mcode.desktop",
+    include:
+      /packages\/desktop\/(src\/main\/desktopLinuxDeepLinkRegistration\.ts|test\/desktopLinuxDeepLinkRegistration\.test\.ts)$/,
+    note: "user-level desktop entry id (constant, comments, logs) + test fixtures",
+  },
+  {
+    id: "p1-linux-icon-default",
+    phase: "P1",
+    match: 'params.iconName ?? "zcode"',
+    replace: 'params.iconName ?? "mcode"',
+    include: /packages\/desktop\/src\/main\/desktopLinuxDeepLinkRegistration\.ts$/,
+  },
+  {
+    id: "p1-linux-product-name-default",
+    phase: "P1",
+    match: 'params.productName ?? "ZCode"',
+    replace: 'params.productName ?? "MCode"',
+    include: /packages\/desktop\/src\/main\/desktopLinuxDeepLinkRegistration\.ts$/,
+  },
+  {
+    id: "p1-linux-app-icon-name",
+    phase: "P1",
+    match: 'LINUX_APP_ICON_NAME = "zcode"',
+    replace: 'LINUX_APP_ICON_NAME = "mcode"',
+    include: /packages\/desktop\/src\/main\/desktopLinuxAppImageIcon\.ts$/,
+    note: "hicolor icon basename must match Icon=mcode",
+  },
+  {
+    id: "p1-linux-app-icon-test-path",
+    phase: "P1",
+    match: '"zcode.png"',
+    replace: '"mcode.png"',
+    include: /packages\/desktop\/test\/desktopLinuxDeepLinkRegistration\.test\.ts$/,
+    note: "hicolor icon basename assertions follow LINUX_APP_ICON_NAME",
   },
 ];
 
