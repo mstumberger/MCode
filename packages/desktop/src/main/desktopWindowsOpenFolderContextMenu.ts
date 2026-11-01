@@ -2,12 +2,15 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import type { Locale } from "@zcode/shared";
 
-const MENU_KEY_NAME = "ZCode.OpenInZCode";
+// rebrand(P0): 注册表键由旧版 ZCode 命名改写为 MCode.OpenInMCode。旧版安装已写入的
+// 旧键按 spec risk register 保留不清理（升级机器上的遗留键无害），新旧安装并存时
+// Explorer 各显示一个菜单项并指向各自的可执行文件。
+const MENU_KEY_NAME = "MCode.OpenInMCode";
 const DIRECTORY_MENU_KEY = `HKCU\\Software\\Classes\\Directory\\shell\\${MENU_KEY_NAME}`;
 const DRIVE_MENU_KEY = `HKCU\\Software\\Classes\\Drive\\shell\\${MENU_KEY_NAME}`;
 const MENU_LABELS: Record<Locale, string> = {
-  "zh-CN": "在ZCode中打开",
-  "en-US": "Open in ZCode",
+  "zh-CN": "在MCode中打开",
+  "en-US": "Open in MCode",
 };
 
 type Logger = {

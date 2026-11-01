@@ -132,6 +132,35 @@ const RULES = [
     include: /packages\/desktop\/test\/desktopOAuthDeepLink\.test\.ts$/,
   },
   {
+    // Task 2 Step 2 (applied late): Windows Explorer folder context menu. The
+    // registry key switches to MCode.OpenInMCode; the legacy ZCode.OpenInZCode
+    // key written by old installs is intentionally NOT rewritten or cleaned up
+    // (spec risk register: stale remnants on upgraded machines are harmless),
+    // so side-by-side installs keep one menu entry per app.
+    id: "p0-windows-context-menu-key",
+    phase: "P0",
+    match: "ZCode.OpenInZCode",
+    replace: "MCode.OpenInMCode",
+    include:
+      /packages\/desktop\/(src\/main\/desktopWindowsOpenFolderContextMenu\.ts|test\/desktopDeepLinkUrl\.test\.ts)$/,
+  },
+  {
+    id: "p0-windows-context-menu-label-zh",
+    phase: "P0",
+    match: "在ZCode中打开",
+    replace: "在MCode中打开",
+    include:
+      /packages\/desktop\/(src\/main\/desktopWindowsOpenFolderContextMenu\.ts|test\/desktopDeepLinkUrl\.test\.ts)$/,
+  },
+  {
+    id: "p0-windows-context-menu-label-en",
+    phase: "P0",
+    match: "Open in ZCode",
+    replace: "Open in MCode",
+    include:
+      /packages\/desktop\/(src\/main\/desktopWindowsOpenFolderContextMenu\.ts|test\/desktopDeepLinkUrl\.test\.ts)$/,
+  },
+  {
     id: "p0-ui-locales",
     phase: "P0",
     match: QUOTED_ZCODE,
