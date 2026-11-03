@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LocalTtftObserver } from "../src/v4/telemetry/localTtftObserver.js";
+import { LocalTtftObserver } from "../src/v4/telemetry/local-ttft/localTtftObserver.js";
 import type { LocalTtftRecord } from "@zcode/shared";
 
 describe("Renderer 首输出与乱序归属", () => {
