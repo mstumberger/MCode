@@ -81,6 +81,16 @@ describe("Telemetry V4 bootstrap", () => {
     });
   });
 
+  it("ZCODE_TELEMETRY_ENABLED 显式关闭时不创建 OTLP Owner，env 原样返回", async () => {
+    for (const value of ["0", "false", "off", "disabled"]) {
+      const env = {
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://arms.example/v1/traces",
+        ZCODE_TELEMETRY_ENABLED: value,
+      };
+      await expect(prepareModelTelemetryEnv(env)).resolves.toBe(env);
+    }
+  });
+
   it("Standalone 异步生成并复用随机 installation id", async () => {
     const home = await mkdtemp(join(tmpdir(), "zcode-telemetry-"));
     const env = {
