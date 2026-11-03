@@ -54,4 +54,19 @@ describe("resolveWebRemoteControlInitialTheme", () => {
       }),
     ).toBe("zai-dark");
   });
+
+  it("passes dark green variants through so the web reload and QR inheritance keep them", () => {
+    expect(
+      resolveWebRemoteControlInitialTheme({
+        storedTheme: "zai-dark-forest",
+        qrTheme: undefined,
+      }),
+    ).toBe("zai-dark-forest");
+    expect(
+      resolveWebRemoteControlInitialTheme({
+        storedTheme: null,
+        qrTheme: "zai-dark-pine",
+      }),
+    ).toBe("zai-dark-pine");
+  });
 });

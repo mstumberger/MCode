@@ -75,6 +75,27 @@ describe("applyTheme", () => {
     expect(document.querySelector('meta[name="color-scheme"]')).toBeNull();
   });
 
+  it.each(["zai-dark-green", "zai-dark-forest", "zai-dark-pine"] as const)(
+    "dark green variant %s mounts the zai-dark base class together with its variant class",
+    (variant) => {
+      applyTheme(variant);
+
+      expect(document.documentElement.classList.contains("dark")).toBe(true);
+      expect(document.documentElement.classList.contains("theme-zai-dark")).toBe(true);
+      expect(document.documentElement.classList.contains(`theme-${variant}`)).toBe(true);
+    },
+  );
+
+  it("switching from a variant back to zai-dark clears all variant classes", () => {
+    applyTheme("zai-dark-pine");
+    applyTheme("zai-dark");
+
+    expect(document.documentElement.classList.contains("theme-zai-dark")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-zai-dark-pine")).toBe(false);
+    expect(document.documentElement.classList.contains("theme-zai-dark-green")).toBe(false);
+    expect(document.documentElement.classList.contains("theme-zai-dark-forest")).toBe(false);
+  });
+
   it("轻量 DOM shim 未提供浏览器表面能力时仍保留既有 class 切换", () => {
     const toggle = vi.fn();
     vi.stubGlobal("document", {
@@ -84,6 +105,7 @@ describe("applyTheme", () => {
     });
 
     expect(() => applyTheme("zai-dark")).not.toThrow();
-    expect(toggle).toHaveBeenCalledTimes(3);
+    // dark + theme-zai-light + theme-zai-dark base class + 3 variant class toggles
+    expect(toggle).toHaveBeenCalledTimes(6);
   });
 });

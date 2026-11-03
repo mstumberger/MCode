@@ -13,9 +13,11 @@ import {
   registerRemoteWorkspaceSession,
   createRemoteWorkspaceDisconnectedError,
   installDocumentHiddenMotionPause,
+  isZaiDarkVariantTheme,
   playTaskNotificationSound,
   setStreamClientId,
   setReactErrorArmsReporter,
+  type Theme,
 } from "@zcode/ui";
 import "@zcode/ui/styles.css";
 import { connectViaMessagePort, createMessagePortServiceConnection } from "@zcode/client";
@@ -84,7 +86,7 @@ function registerE2EStoreBridgesIfEnabled() {
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
         ? "dark"
         : "light"
-      : saved === "dark" || saved === "zai-dark"
+      : saved === "dark" || saved === "zai-dark" || isZaiDarkVariantTheme(saved as Theme)
         ? "dark"
         : "light";
   const appliedTheme =
@@ -96,10 +98,17 @@ function registerE2EStoreBridgesIfEnabled() {
         ? "zai-dark"
         : saved === "light"
           ? "zai-light"
-          : saved;
+          : (saved as Theme);
   if (resolved === "dark") document.documentElement.classList.add("dark");
   document.documentElement.classList.toggle("theme-zai-light", appliedTheme === "zai-light");
-  document.documentElement.classList.toggle("theme-zai-dark", appliedTheme === "zai-dark");
+  document.documentElement.classList.toggle(
+    "theme-zai-dark",
+    appliedTheme === "zai-dark" || isZaiDarkVariantTheme(appliedTheme),
+  );
+  // Green variant classes mount together with the theme-zai-dark base class: the variant only applies a delta override (see styles.css).
+  for (const variant of ["zai-dark-green", "zai-dark-forest", "zai-dark-pine"] as const) {
+    document.documentElement.classList.toggle(`theme-${variant}`, appliedTheme === variant);
+  }
 }
 
 const isMacDesktop = navigator.userAgent.includes("Mac");

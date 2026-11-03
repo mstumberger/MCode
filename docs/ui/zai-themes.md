@@ -13,6 +13,16 @@
 - `styles.css` 中的 `.theme-zai-light` / `.theme-zai-dark` 使用 Zai semantic token 映射到项目现有 `--color-*` 语义变量，组件层不直接依赖 primitive 色阶。
 - 桌面、Web 首屏 bootstrap、进程监控页和手机远控主题菜单都使用 Zai 主题入口，避免首帧回退或入口不可选。
 
+## Dark green variants
+
+Three green dark themes layered on top of `zai-dark`: `zai-dark-green` (gray + green details only), `zai-dark-forest` (gray surfaces with a whisper of green), `zai-dark-pine` (darkest, clearest green cast). The design is a mix, not a green repaint: the zai-dark gray ladder (dark gray page background, lighter gray containers, white text) stays the backbone, and green is detail work - borders, hover/selected states, and accent blocks use one fluorescent green alpha ramp that gets stronger from green to pine.
+
+- Each variant is a delta override of `.theme-zai-dark`: in `styles.css` the variant class only redefines borders, hover/selected states, accent, and - for forest/pine - a progressively greener surface ladder. `zai-dark-green` overrides no surface tokens at all, so its backgrounds are byte-identical to `zai-dark`. Foreground text, semantic feedback colors, and chart colors keep inheriting from the `.theme-zai-dark` base block, so the white primary text is unchanged.
+- `applyTheme()` mounts the `theme-zai-dark` base class and the variant class together; `resolveTheme()` maps every variant into the dark branch, so the title bar, code preview, and mobile remote control keep using the light/dark boundary. First-paint bootstrap (Web `index.html`, Web/Desktop `main.tsx`, the resource manager entry) also resolves variants to dark and mounts the variant class.
+- The sidebar account menu and Settings → Appearance expose all variants; the mobile remote-control theme menu still only exposes `system` / `zai-dark` / `zai-light`, but variants can be applied through QR inheritance or the persisted `zcode-theme` value (`WebRemoteControlThemeSeed` includes the variants).
+- Embedded WebViews (Coding Plan, Rewards) only accept `zai-light` / `zai-dark` in their URL; variants map back to `zai-dark` and do not add new WebView theme parameters.
+- The semantic surface contrast test (`semanticSurfaceContrast.test.ts`) resolves variants with the "variant block + zai-dark base block" cascade and keeps the 4.5:1 gate.
+
 ## Token 映射
 
 - `bg/page` -> `--color-background`

@@ -1,10 +1,22 @@
 import { useEffect, useState, useCallback } from "react";
 
-export type Theme = "light" | "dark" | "zai-light" | "zai-dark" | "system";
+export type ZaiDarkVariantTheme = "zai-dark-green" | "zai-dark-forest" | "zai-dark-pine";
+export type Theme = "light" | "dark" | "zai-light" | "zai-dark" | ZaiDarkVariantTheme | "system";
 export type ResolvedTheme = "light" | "dark";
 
 const STORAGE_KEY = "zcode-theme";
 const BROWSER_THEME_SURFACE_ATTRIBUTE = "data-zcode-browser-theme-surface";
+
+/** Variant class names mirror the theme value; each CSS variant class only overrides the green-tinted tokens, everything else inherits from .theme-zai-dark. */
+const ZAI_DARK_VARIANT_CLASSES: Record<ZaiDarkVariantTheme, string> = {
+  "zai-dark-green": "theme-zai-dark-green",
+  "zai-dark-forest": "theme-zai-dark-forest",
+  "zai-dark-pine": "theme-zai-dark-pine",
+};
+
+export function isZaiDarkVariantTheme(theme: Theme): theme is ZaiDarkVariantTheme {
+  return Object.prototype.hasOwnProperty.call(ZAI_DARK_VARIANT_CLASSES, theme);
+}
 
 function getSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -15,7 +27,9 @@ export function resolveTheme(theme: Theme): ResolvedTheme {
     return getSystemTheme();
   }
 
-  return theme === "dark" || theme === "zai-dark" ? "dark" : "light";
+  return theme === "dark" || theme === "zai-dark" || isZaiDarkVariantTheme(theme)
+    ? "dark"
+    : "light";
 }
 
 export function normalizeThemePreference(theme: Theme): Theme {
@@ -63,18 +77,30 @@ export function applyTheme(theme: Theme) {
         ? "zai-dark"
         : "zai-light"
       : normalizeThemePreference(theme);
+  const isVariant = isZaiDarkVariantTheme(appliedTheme);
   document.documentElement.classList.toggle("dark", resolved === "dark");
   document.documentElement.classList.toggle("theme-zai-light", appliedTheme === "zai-light");
-  document.documentElement.classList.toggle("theme-zai-dark", appliedTheme === "zai-dark");
+  // Variants must mount the zai-dark base class together with their own variant class: the base block provides all dark tokens, the variant block only overrides the green-tinted subset.
+  document.documentElement.classList.toggle(
+    "theme-zai-dark",
+    appliedTheme === "zai-dark" || isVariant,
+  );
+  for (const variantClass of Object.values(ZAI_DARK_VARIANT_CLASSES)) {
+    document.documentElement.classList.toggle(
+      variantClass,
+      isVariant && ZAI_DARK_VARIANT_CLASSES[appliedTheme as ZaiDarkVariantTheme] === variantClass,
+    );
+  }
   syncBrowserThemeSurface(resolved);
 }
 
-function isTheme(value: string | null): value is Theme {
+export function isTheme(value: string | null): value is Theme {
   return (
     value === "light" ||
     value === "dark" ||
     value === "zai-light" ||
     value === "zai-dark" ||
+    isZaiDarkVariantTheme(value as Theme) ||
     value === "system"
   );
 }

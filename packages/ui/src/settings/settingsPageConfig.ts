@@ -19,6 +19,9 @@ import {
   WandSparkles,
   HardDrive,
   Keyboard,
+  Leaf,
+  TreePine,
+  Trees,
   FileSearch,
 } from "lucide-react";
 import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
@@ -30,6 +33,9 @@ export const THEME_MODES: Array<{
 }> = [
   { mode: "system", icon: Monitor },
   { mode: "zai-dark", icon: Moon },
+  { mode: "zai-dark-green", icon: Leaf },
+  { mode: "zai-dark-forest", icon: Trees },
+  { mode: "zai-dark-pine", icon: TreePine },
   { mode: "zai-light", icon: Sun },
 ];
 

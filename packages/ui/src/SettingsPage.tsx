@@ -100,7 +100,7 @@ import {
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
-import type { Theme } from "@/useTheme.js";
+import { isTheme } from "@/useTheme.js";
 import { WindowsTopLeftLogo } from "@/WindowsTopLeftLogo.js";
 
 import { DesktopWindowControls } from "@/DesktopWindowControls.js";
@@ -1428,16 +1428,11 @@ export function SettingsPage({
   );
   const handleFooterThemeChange = useCallback(
     (value: string) => {
-      if (
-        value === "light" ||
-        value === "dark" ||
-        value === "zai-light" ||
-        value === "zai-dark" ||
-        value === "system"
-      ) {
+      // isTheme is the single runtime guard for the Theme enum; new theme values (e.g. dark green variants) only need a useTheme.ts change.
+      if (isTheme(value)) {
         runUserAction({
           input: { featureId: "settings.appearance", action: "change_theme", trigger: "select" },
-          operation: () => setTheme(value as Theme),
+          operation: () => setTheme(value),
           completed: { resultSource: "local_commit", valueAfter: value },
           failureStage: "local_commit",
         });

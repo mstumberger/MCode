@@ -191,7 +191,10 @@ function createMermaidConfig(resolvedTheme: "light" | "dark"): MermaidConfig {
 
 function resolveBrowserTheme(theme: Theme): "light" | "dark" {
   if (typeof window === "undefined") {
-    return theme === "dark" || theme === "zai-dark" ? "dark" : "light";
+    // The windowless fallback must also cover dark variants (e.g. green themes), otherwise it degrades to light rendering.
+    return theme === "dark" || theme === "zai-dark" || theme.startsWith("zai-dark-")
+      ? "dark"
+      : "light";
   }
 
   return resolveTheme(theme);

@@ -26,7 +26,15 @@ import type { WorkspacePurpose } from "./workspacePurpose.js";
 export const WEB_REMOTE_CONTROL_WORKSPACE_RECONNECT_TIMEOUT_MS = 120_000;
 export const WEB_REMOTE_CONTROL_OUTBOUND_PAYLOAD_BUFFER_TIMEOUT_MS = 5_000;
 
-export type WebRemoteControlThemeSeed = "light" | "dark" | "zai-light" | "zai-dark" | "system";
+export type WebRemoteControlThemeSeed =
+  | "light"
+  | "dark"
+  | "zai-light"
+  | "zai-dark"
+  | "zai-dark-green"
+  | "zai-dark-forest"
+  | "zai-dark-pine"
+  | "system";
 
 export interface WebRemoteControlContext {
   workspacePath: string;
@@ -135,6 +143,9 @@ export function isWebRemoteControlThemeSeed(value: unknown): value is WebRemoteC
     value === "dark" ||
     value === "zai-light" ||
     value === "zai-dark" ||
+    value === "zai-dark-green" ||
+    value === "zai-dark-forest" ||
+    value === "zai-dark-pine" ||
     value === "system"
   );
 }

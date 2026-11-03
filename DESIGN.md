@@ -63,8 +63,9 @@ User-facing theme choices are:
 - System
 - Light Theme, backed by Zai Light
 - Dark Theme, backed by Zai Dark
+- Dark Theme green variants, backed by Zai Dark deltas: Green tint, Forest, Pine
 
-Default light and dark CSS variables still exist as fallback foundations, but new UI should be validated against Zai Light and Zai Dark as the active light/dark experiences.
+Default light and dark CSS variables still exist as fallback foundations, but new UI should be validated against Zai Light and Zai Dark as the active light/dark experiences. Green variants reuse the Zai Dark token block with green-tinted surface/border/accent overrides; text, semantic feedback, and chart tokens stay inherited from Zai Dark.
 
 ## Color Palette
 

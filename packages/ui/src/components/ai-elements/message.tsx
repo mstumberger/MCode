@@ -97,7 +97,7 @@ import { useWorkspaceOpenInEditorTarget } from "@/hooks/useWorkspaceOpenInEditor
 import { useOptionalServices } from "@/hooks/useServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
-import type { Theme } from "@/useTheme.js";
+import { resolveTheme, type Theme } from "@/useTheme.js";
 import { createZCodeFileCitationRemarkPlugin } from "@/lib/zcodeFileCitationRemarkPlugin.js";
 import { windowsFileLinkEscapeRemarkPlugin } from "@/lib/windowsFileLinkEscapeRemarkPlugin.js";
 import { projectZCodeFileCitations } from "@/lib/zcodeFileCitation.js";
@@ -849,7 +849,8 @@ function resolveMessageCodeTheme(
       : codePreviewSettings.lightTheme;
   }
 
-  return theme === "dark" || theme === "zai-dark"
+  // Route through resolveTheme's light/dark branch so dark variants (e.g. green themes) never fall into the light code theme.
+  return resolveTheme(theme) === "dark"
     ? codePreviewSettings.darkTheme
     : codePreviewSettings.lightTheme;
 }
