@@ -272,6 +272,7 @@ export function App({
     activeTaskId,
     sidePaneOwnerId,
     isDesktop,
+    isWebRemoteControl: Boolean(webRemoteControlWorkspaceSwitcher),
     isWorkspaceVisible,
     supportsEmbeddedBrowser,
     platform,
