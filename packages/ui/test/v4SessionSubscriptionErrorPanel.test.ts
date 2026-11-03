@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import type { IPlatformService } from "@zcode/shared";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useFeedbackStore } from "@/feedback/feedbackStore.js";
@@ -50,7 +50,18 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // 修复原因：点击“反馈问题”通过 Zustand 外部更新调度 React 渲染；文件结束时若调度器
+  // 仍有排队的 performWorkUntilDeadline，jsdom 环境拆除后会以 "window is not defined"
+  // 未捕获异常让整个 vitest 运行判负（forks 池 CI 实测，本地 threads 不复现）。
+  // 在 act 内复位反馈 store 可同步冲刷订阅者更新并清空调度队列。
+  await act(async () => {
+    useFeedbackStore.setState({
+      open: false,
+      featureRequestOpen: false,
+      submitDraft: null,
+    });
+  });
   cleanup();
   vi.clearAllMocks();
 });

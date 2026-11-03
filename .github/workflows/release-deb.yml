@@ -58,10 +58,15 @@ jobs:
             jq --arg v "${{ inputs.version }}" '.version = $v' "$file" > "$tmp" && mv "$tmp" "$file"
             grep -m1 '"version"' "$file"
           done
+          # desktopProductIdentity 契约测试要求根锁文件版本与 package.json 一致；
+          # 锁文件只改根 version 字段，依赖树保持冻结（pnpm 使用 pnpm-lock.yaml）。
+          tmp="$(mktemp)"
+          jq --arg v "${{ inputs.version }}" '.version = $v | .packages[""].version = $v' package-lock.json > "$tmp" && mv "$tmp" package-lock.json
+          grep -m1 '"version"' package-lock.json
 
       - name: Commit and tag release
         run: |
-          git add package.json packages/desktop/package.json
+          git add package.json packages/desktop/package.json package-lock.json
           git commit -m "release: v${{ inputs.version }} [skip ci]"
           git tag "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
 
@@ -99,6 +104,12 @@ jobs:
           # same value the package.json was just bumped to — keeps name and
           # dpkg version consistent even if injection and bump ever diverge
           ZCODE_BUILDER_VERSION: ${{ inputs.version }}
+          # release builds ship the production identity: production builtin
+          # provider config, productName MCode, deb package "mcode" and no
+          # _TEST artifact suffix. Without this the environment defaults to
+          # "test", which by design forces Preview identity + _TEST suffix
+          # (test-backend builds must never overwrite a production install).
+          ZCODE_ENV: production
         run: pnpm bundle --os linux --arch x64
 
       - name: Upload .deb as workflow artifact

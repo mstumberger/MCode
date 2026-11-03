@@ -409,7 +409,7 @@ export class ZCodeProtocolAgentServer {
     for (const record of this.context.sessions.values()) {
       try {
         record.app.runtime.stopActiveForegroundExecution?.({
-          reason: "ZCode Protocol owner disconnected",
+          reason: "MCode Protocol owner disconnected",
         });
       } catch (cause) {
         this.logger?.warn("Failed to stop foreground execution after protocol disconnect", {
@@ -433,7 +433,7 @@ export class ZCodeProtocolAgentServer {
   shutdown(): Promise<void> {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.shutdownPromise = this.runtimeResources.close();
-    const error = new Error("ZCode Protocol runtime stopping");
+    const error = new Error("MCode Protocol runtime stopping");
     this.disconnectClient(error);
     this.messageSink = undefined;
     this.clearPostResponseMessages();
@@ -502,7 +502,7 @@ export class ZCodeProtocolAgentServer {
         if (control.success) this.networkCapture.setCaptureId(control.data.captureId);
         return undefined;
       }
-      this.logger?.debug("ZCode Protocol notification ignored", {
+      this.logger?.debug("MCode Protocol notification ignored", {
         event: "zcode_protocol.notification.ignored",
         method: message.method,
         module: "bootstrap.zcode_protocol",

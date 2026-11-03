@@ -94,12 +94,19 @@ export async function main(argv = process.argv.slice(2)) {
       if (options.dryRun)
         for (const test of tests) console.log(`  ${test.project}/${test.pool}: ${test.path}`);
     }
-    // 全量选择不是测试失败；加载测试前跳过并成功退出，避免仅因不跑全量而阻止 Push。
+    // 全量选择不是测试失败。worktree 范围保持加载前跳过并成功退出；
+    // push 范围必须与 CI 同口径执行全量——否则广泛改动（如根配置）永远本地不跑
+    // UT，只能在 CI 上发现失败（实测：一次性 22 分钟 runner 时间打水漂）。
     if (all.length && all.every((spec) => selected.has(specKey(spec)))) {
+      if (options.scope !== "push") {
+        console.warn(
+          `[affected] Vitest 官方选择了整个根 UT 套件（${all.length} 个规格），已跳过 UT（未执行测试），不因此阻止执行。改动文件：${[...related].map((file) => relative(root, file)).join(", ")}`,
+        );
+        return 0;
+      }
       console.warn(
-        `[affected] Vitest 官方选择了整个根 UT 套件（${all.length} 个规格），已跳过 UT（未执行测试），不因此阻止 Push。改动文件：${[...related].map((file) => relative(root, file)).join(", ")}`,
+        `[affected] Vitest 官方选择了整个根 UT 套件（${all.length} 个规格）；push 范围按 CI 同口径执行全量 UT。改动文件：${[...related].map((file) => relative(root, file)).join(", ")}`,
       );
-      return 0;
     }
     if (!specs.length || options.dryRun) return 0;
     await vitest.standalone();

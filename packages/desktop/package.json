@@ -1,8 +1,8 @@
 {
   "name": "@zcode/desktop",
   "private": true,
-  "description": "ZCode Desktop App",
-  "author": "ZCode",
+  "description": "MCode Desktop App",
+  "author": "MCode",
   "type": "module",
   "main": "out/main/index.js",
   "imports": {
@@ -125,6 +125,6 @@
     "wdio-electron-service": "^9.2.1",
     "webdriverio": "^9.27.0"
   },
-  "productName": "ZCode",
+  "productName": "MCode",
   "version": "0.0.1"
 }

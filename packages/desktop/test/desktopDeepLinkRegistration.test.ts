@@ -50,8 +50,11 @@ describe("Windows Deep Link 启动参数边界", () => {
     registerDeepLinkProtocol(logger);
     registerDeepLinkProtocol(logger);
 
+    // rebrand(P1)：每次注册同时覆盖 mcode 与 zcode（Preserve list）两个 scheme。
     expect(mocks.register.mock.calls).toEqual([
+      ["mcode", process.execPath, ["--"]],
       ["zcode", process.execPath, ["--"]],
+      ["mcode", process.execPath, ["--"]],
       ["zcode", process.execPath, ["--"]],
     ]);
   });

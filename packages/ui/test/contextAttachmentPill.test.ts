@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { FileIcon } from "lucide-react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContextAttachmentPill } from "@/v4/composer/ContextAttachmentPill.js";
 
-afterEach(() => document.body.replaceChildren());
+// 修复原因：全局兜底 cleanup 会在本文件 afterEach 之后再卸载组件；直接清空 body
+// 会让 React 卸载路径找不到节点（NotFoundError）。改为先正常 unmount。
+afterEach(() => {
+  cleanup();
+});
 
 describe("ContextAttachmentPill", () => {
   it("opens context details and removes through one pill trigger", async () => {

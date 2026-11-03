@@ -16,7 +16,14 @@ import {
 } from "@/root/remoteWorkspaceSessionPersistence.js";
 import type { AppSettings } from "@zcode/shared";
 
-afterEach(() => {
+afterEach(async () => {
+  // 修复原因：全局兜底 cleanup 在文件级 afterEach 之后才卸载组件；若先把
+  // requestIdleCallback/cancelIdleCallback mock 删除，卸载路径会调用不存在的
+  // cancelIdleCallback。先在 mock 仍生效时正常 unmount，再恢复计时器与全局。
+  if (typeof document !== "undefined") {
+    const { cleanup } = await import("@testing-library/react");
+    cleanup();
+  }
   vi.useRealTimers();
   delete (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback;
   delete (globalThis as { cancelIdleCallback?: unknown }).cancelIdleCallback;
