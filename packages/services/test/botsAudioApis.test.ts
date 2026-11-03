@@ -57,7 +57,8 @@ describe("bot STT transcription", () => {
       },
       fetchMock as unknown as typeof fetch,
     );
-    expect(result).toBe("hello world");
+    // 双语言/单语言路径统一返回 BotLanguageTranscription[]（1a9645d9 起的语言标注契约）。
+    expect(result).toEqual([{ language: "en", text: "hello world" }]);
   });
 
   it("returns null on non-ok responses", async () => {

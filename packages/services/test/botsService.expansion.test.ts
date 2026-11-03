@@ -124,12 +124,12 @@ describe("voice transcription", () => {
     });
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://stt.test/v1/audio/transcriptions");
+    // 1a9645d9 起的契约：有转写文本时音频附件不再透传给模型（避免"review the
+    // attachment"样板让会话加载无关 skill 而不是执行指令），并追加回复语言指令。
     expect(legacyTaskService.sendPrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining("hello from voice"),
-        attachments: [
-          expect.objectContaining({ kind: "audio", filename: "telegram-voice.ogg" }),
-        ],
+        content: "hello from voice\n\nReply in the same language as the transcribed voice message.",
+        attachments: undefined,
       }),
     );
     service.disposeAll();
