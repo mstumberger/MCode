@@ -225,6 +225,29 @@ const modelAnomalyGuardSchema = z.object({
   maxBudgetWarningsPerTurn: z.number().int().nonnegative().optional(),
 });
 
+// 与 shared/model-selection 语义等价的本地副本：两个 workspace 的 zod 实例不同
+// （adapters 4.4.3 / shared 4.3.6），嵌入 shared schema 会产生 foreign zod 内部类型
+// （TS2742），同 hooks 的处理方式保持一致。
+const modelRoutingSelectionSchema = z
+  .object({
+    providerId: z.string().trim().min(1),
+    modelId: z.string().trim().min(1),
+    options: z
+      .object({
+        reasoningLevel: z.string().trim().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const modelRoutingSchema = z
+  .object({
+    planMode: modelRoutingSelectionSchema.optional(),
+    utility: modelRoutingSelectionSchema.optional(),
+  })
+  .strict();
+
 // Hooks schema：
 // 理想态是 re-export shared/workspace-hook-config，但两个 pnpm workspace 解析出物理
 // 不同的 zod 实例（adapters 4.4.3 / shared 4.3.6）：shared schema 嵌入本包组合 schema
@@ -302,6 +325,7 @@ export const ZCodeConfigFileSchema = z
     ui: uiSchema.optional(),
     toolConcurrency: toolConcurrencySchema.optional(),
     modelAnomalyGuard: modelAnomalyGuardSchema.optional(),
+    modelRouting: modelRoutingSchema.optional(),
     hooks: hooksSchema.optional(),
   })
   .passthrough();
@@ -419,6 +443,7 @@ function parsedConfigFileToRuntimePatch(parsed: ZCodeConfigFile): RuntimeConfigP
   if (parsed.ui) config.ui = parsed.ui;
   if (parsed.toolConcurrency) config.toolConcurrency = parsed.toolConcurrency;
   if (parsed.modelAnomalyGuard) config.modelAnomalyGuard = parsed.modelAnomalyGuard;
+  if (parsed.modelRouting) config.modelRouting = parsed.modelRouting;
   if (parsed.hooks) config.hooks = parsed.hooks;
 
   return config;

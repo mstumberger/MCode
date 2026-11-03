@@ -47,6 +47,7 @@ import {
   logCompactMediaRetryProjection,
   readApprovedPlanFileReferenceEntry,
 } from "../helpers/index.js";
+import { createUtilityRuntimeModel } from "../model-selection.js";
 import type { CompactTimelineContext, RuntimeModelTextResult } from "../types.js";
 import type { Model } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
@@ -68,7 +69,6 @@ import { resolveNormalRequestMaxOutputTokens } from "./model-token-limits.js";
 import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
 import { recordModelUsageFact } from "./usage-observability.js";
 import { resetProjectMemoryRecall } from "../helpers/project-memory-recall.js";
-import { createRuntimeModel } from "./runtime-model.js";
 import {
   filterOutputTokenContinuationEntries,
   preserveCanonicalContextPrefix,
@@ -180,11 +180,8 @@ async function compactActiveConversationImpl(
   const trigger = options.trigger ?? CompactTrigger.Manual;
   const phase = options.phase ?? defaultCompactPhaseForTrigger(trigger);
   const compactReason = options.compactReason ?? defaultCompactReasonForTrigger(trigger);
-  const compactModel =
-    options.model ??
-    createRuntimeModel(this, {
-      selection: this.getSessionModelSelection(),
-    });
+  // 压缩是总结类 sidecar：默认走 utility 路由模型，未配置时维持会话模型。
+  const compactModel = options.model ?? createUtilityRuntimeModel(this, "compact_summary");
   const executionMaxOutputTokens = compactModel.optionSpecs.maxOutputTokens.max;
   // Active compact 会跨多个 await 保留这份成员浅快照；它依赖 RuntimeMessageEntry
   // 不可变约定。selection、provider render 和最终 replace 会创建各自拥有的副本，

@@ -1809,6 +1809,46 @@ describe("config adapters", () => {
     }
   });
 
+  it("parses modelRouting role selections and rejects malformed role targets", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-config-model-routing-"));
+    try {
+      const path = join(dir, "config.json");
+      await writeFile(
+        path,
+        JSON.stringify({
+          modelRouting: {
+            planMode: { providerId: "provider-flash", modelId: "flash-model" },
+            utility: {
+              providerId: "provider-flash",
+              modelId: "utility-model",
+              options: { reasoningLevel: "low" },
+            },
+          },
+        }),
+      );
+      const loaded = loadFileConfig(path);
+      expect(loaded.loaded).toBe(true);
+      expect(loaded.config.modelRouting).toEqual({
+        planMode: { providerId: "provider-flash", modelId: "flash-model" },
+        utility: {
+          providerId: "provider-flash",
+          modelId: "utility-model",
+          options: { reasoningLevel: "low" },
+        },
+      });
+
+      // 角色目标必须是完整 ModelSelection：残缺条目按既有 strict 配置语义整份拒绝，
+      // 不能悄悄落成运行期才失败的半成品路由。
+      const invalidPath = join(dir, "invalid-config.json");
+      await writeFile(invalidPath, JSON.stringify({ modelRouting: { utility: { providerId: "" } } }));
+      const invalid = loadFileConfig(invalidPath);
+      expect(invalid.loaded).toBe(false);
+      expect(invalid.config).toEqual({});
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("removes a plugin's enabled flag and options on uninstall while preserving others", async () => {
     const dir = await mkdtemp(join(tmpdir(), "zcode-config-plugin-remove-"));
     const configPath = join(dir, "config.json");

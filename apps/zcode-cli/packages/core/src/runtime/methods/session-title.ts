@@ -9,6 +9,7 @@ import type {
 } from "../deps.js";
 import type { AgentTelemetryCausation } from "@zcode/contracts";
 import type { AgentRuntimeInternal } from "../internal.js";
+import { resolveUtilityModelSelection } from "../model-selection.js";
 import {
   persistFallbackGoalSummaryTitle,
   persistGeneratedGoalSummaryTitle,
@@ -170,8 +171,10 @@ function shouldAttemptSessionTitleGeneration(
 function shouldDeferSessionTitleForRuntimeHeaders(runtime: AgentRuntimeInternal): boolean {
   const runtimeHeadersPort = runtime.providerRuntimeHeadersPort;
   if (!runtimeHeadersPort) return false;
+  // 与 retainTitleModelContext 的解析保持一致：标题可能落在 utility 路由模型上，
+  // header 刷新判断不能只看会话模型。
   const selection =
-    runtime.config.titleGeneration?.modelSelection ?? runtime.getSessionModelSelection();
+    runtime.config.titleGeneration?.modelSelection ?? resolveUtilityModelSelection(runtime);
   if (!selection) return true;
   return (
     runtimeHeadersPort.shouldRefreshBeforeModelRequest?.({
