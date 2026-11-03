@@ -747,6 +747,12 @@ global:
   acceptedUpstreamSnapshot: scripts/architecture/upstream-snapshot.json
 
 exceptions:
+  - id: bots-voice-stt-tts-files
+    rule: unmanaged-new-file
+    paths:
+      - packages/services/src/bots/audioTranscription.ts
+      - packages/services/src/bots/audioSpeech.ts
+    reason: fork 自有的 Bot 语音 STT/TTS 接线（8fde15e0 引入，已在 fork main；docs/bots-voice-stt-voicestudio.md）。仅因 pre-push 基线回退到上游 zai-org origin/main 才被视为新增。把整个 bots 目录登记为 managed 模块需先重构 providers（feishuProvider 2900+ 行、deep-import session 内部），超出语音管线范围。
   - id: side-pane-full-view-shortcut-command-edit
     rule: unmanaged-new-file
     paths: [packages/shared/src/shortcutCommands.ts]
