@@ -16,7 +16,7 @@ import type { AgentRuntimeInternal } from "../internal.js";
 import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
 import { recordModelUsageFact } from "./usage-observability.js";
 import { createRuntimeModel } from "./runtime-model.js";
-import { cloneModelSelection } from "../model-selection.js";
+import { cloneModelSelection, resolveUtilityModelSelection } from "../model-selection.js";
 import { auxiliaryModelOptions } from "../../model/auxiliary-model-options.js";
 import { getOffPeakExecution } from "../off-peak/runtime.js";
 
@@ -43,8 +43,9 @@ export function retainTitleModelContext(
     };
   }
   // 独立标题遵循自己的配置；未归属闲时执行的调用不能借用临时 Session 闲时模型。
+  // utility 路由只接在原会话模型的位置：显式标题配置与闲时归属仍高于路由。
   const selection =
-    explicitSelection ?? (idle ? execution.ordinarySelection : runtime.getSessionModelSelection());
+    explicitSelection ?? (idle ? execution.ordinarySelection : resolveUtilityModelSelection(runtime));
   return { selection: selection && cloneModelSelection(selection), release() {} };
 }
 

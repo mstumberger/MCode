@@ -21,7 +21,7 @@ import { projectMessagesForModelMediaPolicy } from "../helpers/media-budget.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { isRuntimeAttachmentEntry, type RuntimeMessageEntry } from "../../agent/message-history.js";
 import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
-import { createRuntimeModel } from "./runtime-model.js";
+import { createUtilityRuntimeModel } from "../model-selection.js";
 import { isStartPlanBusyStreamRecoveryFailure } from "./streaming-recovery.js";
 import { recordModelUsageFact } from "./usage-observability.js";
 import { runTargetCompletionVerificationWithTelemetry } from "./target-completion-verification-telemetry.js";
@@ -98,8 +98,8 @@ async function verifyTargetCompletion(
 ): Promise<GoalCompletionVerificationOutput> {
   // 目标验证期间也允许切换 session 默认模型；请求、重试和 usage 必须共用
   // 验证开始时的模型快照，不能在 provider 返回后重新读取 Session Selection。
-  const requestedModelSelection = this.getSessionModelSelection();
-  const model = createRuntimeModel(this, { selection: requestedModelSelection });
+  // 验证是总结类 sidecar：默认走 utility 路由模型，未配置时维持会话模型。
+  const model = createUtilityRuntimeModel(this, "goal_completion_verification");
   const modelTraceContext = createChildTraceContext(input.traceContext, {
     attributes: {
       model: `${model.providerId}/${model.modelId}`,

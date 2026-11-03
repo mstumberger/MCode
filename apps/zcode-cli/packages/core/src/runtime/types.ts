@@ -15,6 +15,7 @@ import type {
   ForkChildSessionMetadata,
   ModelRequestAuth,
   ModelRequestDependencies,
+  ModelRoutingConfig,
   ModelSelection,
   PluginReferenceCatalog,
   ResolvedUserInstructions,
@@ -204,6 +205,11 @@ export interface AgentRuntimeConfig {
   memory?: MemoryRuntimeConfig;
   /** 历史恢复允许未绑定；只有完整选择才能创建本轮执行 Model。 */
   modelSelection?: ModelSelection;
+  /**
+   * 按工作类型路由模型的角色配置（plan 模式 turn 与总结类 sidecar）。
+   * 显式提交/执行选择不受路由影响；解析与失败退回见 helpers/model-routing.ts。
+   */
+  modelRouting?: ModelRoutingConfig;
   titleGeneration?: {
     enabled?: boolean;
     modelSelection?: ModelSelection;

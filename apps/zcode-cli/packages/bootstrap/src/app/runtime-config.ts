@@ -155,6 +155,10 @@ export function resolveAppRuntimeConfig(input: {
       ...configResult.config.modelAnomalyGuard,
       ...options.runtimeConfig?.modelAnomalyGuard,
     },
+    // 路由角色目标由 Registry 解析；配置错目标时 runtime 侧按角色退回会话模型。
+    ...(options.runtimeConfig?.modelRouting ?? configResult.config.modelRouting
+      ? { modelRouting: options.runtimeConfig?.modelRouting ?? configResult.config.modelRouting }
+      : {}),
     mcp: {
       enabled: options.runtimeConfig?.mcp?.enabled ?? configResult.config.features.mcp,
       servers: autoConnectMcpServers,

@@ -194,6 +194,17 @@ class ConfigStore {
         scope,
       );
     }
+    if (config.modelRouting) {
+      const previous = this.get(ConfigKey.ModelRouting) ?? DefaultConfig.modelRouting;
+      this.set(
+        ConfigKey.ModelRouting,
+        {
+          ...previous,
+          ...config.modelRouting,
+        },
+        scope,
+      );
+    }
     if (config.hooks) {
       const previous = this.get(ConfigKey.Hooks) ?? DefaultConfig.hooks;
       this.set(
@@ -328,6 +339,7 @@ export class ConfigPortImpl implements ConfigPort {
       },
       modelAnomalyGuard:
         this.store.get(ConfigKey.ModelAnomalyGuard) ?? DefaultConfig.modelAnomalyGuard,
+      modelRouting: this.store.get(ConfigKey.ModelRouting) ?? DefaultConfig.modelRouting,
       hooks: this.store.get(ConfigKey.Hooks) ?? DefaultConfig.hooks,
       ui: {
         locale: this.store.get(ConfigKey.UiLocale) ?? DefaultConfig.ui.locale,
@@ -437,6 +449,8 @@ function getDefaultValue(key: ConfigKey): unknown {
       return defaults.toolConcurrency.maxConcurrency;
     case ConfigKey.ModelAnomalyGuard:
       return defaults.modelAnomalyGuard;
+    case ConfigKey.ModelRouting:
+      return defaults.modelRouting;
     case ConfigKey.Hooks:
       return defaults.hooks;
     case ConfigKey.UiLocale:
