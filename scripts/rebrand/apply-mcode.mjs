@@ -424,6 +424,15 @@ const RULES = [
     note: "hicolor icon basename assertions follow LINUX_APP_ICON_NAME",
   },
   {
+    // Fixup after the P0 commit: the p0-web-titles rule renamed the login page
+    // brand in webLoginPage but not this test's expectations.
+    id: "p0-web-login-brand-test",
+    phase: "P0",
+    match: QUOTED_ZCODE,
+    replaceFn: mcodeInSpan,
+    include: /packages\/web\/test\/webLoginPage\.test\.ts$/,
+  },
+  {
     id: "p1-builder-protocols-schemes",
     phase: "P1",
     match: 'schemes: ["zcode"],',
