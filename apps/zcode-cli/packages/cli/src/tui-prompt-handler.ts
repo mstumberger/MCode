@@ -335,8 +335,12 @@ export function createTuiSubmitPrompt(
 
     try {
       // Model/effort changes configure subsequent requests, including during an active turn.
+      // exit 同理走命令中心：busy turn 下的 /exit 等同双击 Ctrl+C，不能把字面文本喂给模型。
       const command = parseSlashCommand(typeof input === "string" ? input : input.text);
-      if (command?.type === "known" && (command.name === "model" || command.name === "effort")) {
+      if (
+        command?.type === "known" &&
+        (command.name === "model" || command.name === "effort" || command.name === "exit")
+      ) {
         return {
           kind: "command_result",
           result: await submitPrompt(input, {
