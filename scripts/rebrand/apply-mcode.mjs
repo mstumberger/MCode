@@ -441,7 +441,7 @@ const RULES = [
     match: /("[^"\n]*ZCode[^"\n]*"|'[^'\n]*ZCode[^'\n]*')/,
     replaceFn: mcodeInSpan,
     include:
-      /packages\/(desktop\/test\/(about|desktopTray|desktopRuntimeEnv)\.test\.ts|ui\/test\/(confirmDialogRequiredAcknowledgement|pluginStoreListing|projectEditorLayout|skillsMentionProvider|workflowSaveControls)\.test\.ts|ui\/test\/highspeed\/HighspeedShareNoticeCard\.test\.ts|web\/test\/(conversationShareLandingPage|webRemoteControlDeviceListPage)\.test\.ts)$/,
+      /packages\/(desktop\/test\/(about|desktopTray|desktopRuntimeEnv)\.test\.ts|ui\/test\/(confirmDialogRequiredAcknowledgement|pluginStoreListing|projectEditorLayout|skillsMentionProvider|workflowSaveControls)\.test\.ts|ui\/test\/highspeed\/HighspeedShareNoticeCard\.test\.ts|web\/test\/(conversationShareLandingPage|webRemoteControlDeviceListPage|webRemoteControlBrand)\.test\.ts)$/,
     note: "single- and double-quoted expectations; fixture device names flip together",
   },
   {

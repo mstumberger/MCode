@@ -9,7 +9,7 @@ describe("远控页头品牌", () => {
     expect(html).toMatch(/<img[^>]*data-app-logo="zcode"/);
     expect(html).toMatch(/<img[^>]*alt=""/);
     expect(html).toMatch(/<img[^>]*aria-hidden="true"/);
-    expect(html).toContain("ZCode");
+    expect(html).toContain("MCode");
     expect(html).not.toContain("<a ");
     expect(html).not.toContain("<button");
     expect(html).not.toContain("role=");
