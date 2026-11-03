@@ -901,6 +901,14 @@ exceptions:
     rule: unmanaged-new-file
     paths: [ packages/ui/src/hooks/useIsNarrowViewport.ts ]
     reason: 窄视口侧栏抽屉（docs/ui/narrow-viewport-layout.md）新增的单一视口判定 hook，是断点媒体查询常量与 SSR 安全同步读取的唯一 owner，被 WorkspaceShellLayout 与 useAppPanels 引用；接管整个 packages/ui/src/hooks 需要单独的模块边界梳理，不在本功能移植范围内。
+  - id: conversation-export-zoom-unmanaged-files
+    rule: unmanaged-new-file
+    paths:
+      - packages/ui/src/lib/conversationExportDirectory.ts
+      - packages/ui/src/lib/conversationZoomScale.ts
+      - packages/ui/src/v4/ConversationTimelineContextMenu.tsx
+      - packages/ui/src/v4/conversationMarkdownExport.ts
+    reason: 会话导出 Markdown 与字号缩放（docs/ui/conversation-export-and-zoom.md，移植自 fausten/ZCode）新增的导出器、缩放与目录解析纯工具及时间线右键菜单；导出与缩放的唯一事实源分别是 conversationMarkdownExport 与 conversationZoomScale + store 持久化。接管 packages/ui/src/{lib,v4} 目录需要单独的模块边界梳理，不在本功能移植范围内。
   - id: provider-endpoint-routing-unmanaged-edit
     rule: unmanaged-new-file
     paths:
