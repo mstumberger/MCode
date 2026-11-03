@@ -362,6 +362,21 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
                       id: "sidebar.settings.theme.zai-dark",
                     })}
                   </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="zai-dark-green">
+                    {intl.formatMessage({
+                      id: "sidebar.settings.theme.zai-dark-green",
+                    })}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="zai-dark-forest">
+                    {intl.formatMessage({
+                      id: "sidebar.settings.theme.zai-dark-forest",
+                    })}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="zai-dark-pine">
+                    {intl.formatMessage({
+                      id: "sidebar.settings.theme.zai-dark-pine",
+                    })}
+                  </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="zai-light">
                     {intl.formatMessage({
                       id: "sidebar.settings.theme.zai-light",

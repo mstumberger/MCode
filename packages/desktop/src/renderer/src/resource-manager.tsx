@@ -9,8 +9,10 @@ import {
   ResourceManagerApp,
   ZCodeIntlProvider,
   applyUiFontSizePx,
+  isZaiDarkVariantTheme,
   loadUiFontSizePx,
   subscribeToUiFontSizeStorageChanges,
+  type Theme,
 } from "@zcode/ui";
 
 declare global {
@@ -24,13 +26,13 @@ declare global {
   }
 }
 
-type Theme = "light" | "dark" | "zai-light" | "zai-dark" | "system";
-
 function resolveTheme(theme: Theme): "light" | "dark" {
   if (theme === "system") {
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
-  return theme === "dark" || theme === "zai-dark" ? "dark" : "light";
+  return theme === "dark" || theme === "zai-dark" || isZaiDarkVariantTheme(theme)
+    ? "dark"
+    : "light";
 }
 
 function applyResourceManagerTheme(): void {
@@ -48,7 +50,14 @@ function applyResourceManagerTheme(): void {
           : savedTheme;
   document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
   document.documentElement.classList.toggle("theme-zai-light", appliedTheme === "zai-light");
-  document.documentElement.classList.toggle("theme-zai-dark", appliedTheme === "zai-dark");
+  document.documentElement.classList.toggle(
+    "theme-zai-dark",
+    appliedTheme === "zai-dark" || isZaiDarkVariantTheme(appliedTheme),
+  );
+  // Green variant classes mount together with the theme-zai-dark base class: the variant only applies a delta override (see styles.css).
+  for (const variant of ["zai-dark-green", "zai-dark-forest", "zai-dark-pine"] as const) {
+    document.documentElement.classList.toggle(`theme-${variant}`, appliedTheme === variant);
+  }
 }
 
 applyResourceManagerTheme();

@@ -28,7 +28,8 @@
         const normalizeResolvedTheme = (theme) => {
           if (theme === "dark") return "dark";
           if (theme === "light") return "light";
-          if (theme === "zai-dark") return "dark";
+          // zai-dark and its green variants (zai-dark-green/forest/pine) all render dark on first paint to avoid a light flash.
+          if (theme === "zai-dark" || theme.startsWith("zai-dark-")) return "dark";
           if (theme === "zai-light") return "light";
           return theme;
         };

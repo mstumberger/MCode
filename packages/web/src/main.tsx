@@ -19,6 +19,7 @@ import {
   ZCodeIntlProvider,
   generateMobileDeviceFingerprint,
   installDocumentHiddenMotionPause,
+  isZaiDarkVariantTheme,
   playTaskNotificationSound,
   setStreamClientId,
   setWebRemoteControlTerminalTransportState,
@@ -203,7 +204,7 @@ function resolveWebThemePreference(defaultTheme: Theme = WEB_REMOTE_CONTROL_DEFA
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
         ? "dark"
         : "light"
-      : saved === "dark" || saved === "zai-dark"
+      : saved === "dark" || saved === "zai-dark" || isZaiDarkVariantTheme(saved)
         ? "dark"
         : "light";
   const appliedTheme =
@@ -218,7 +219,14 @@ function resolveWebThemePreference(defaultTheme: Theme = WEB_REMOTE_CONTROL_DEFA
           : saved;
   document.documentElement.classList.toggle("dark", resolved === "dark");
   document.documentElement.classList.toggle("theme-zai-light", appliedTheme === "zai-light");
-  document.documentElement.classList.toggle("theme-zai-dark", appliedTheme === "zai-dark");
+  document.documentElement.classList.toggle(
+    "theme-zai-dark",
+    appliedTheme === "zai-dark" || isZaiDarkVariantTheme(appliedTheme),
+  );
+  // Green variant classes mount together with the theme-zai-dark base class: the variant only applies a delta override (see styles.css).
+  for (const variant of ["zai-dark-green", "zai-dark-forest", "zai-dark-pine"] as const) {
+    document.documentElement.classList.toggle(`theme-${variant}`, appliedTheme === variant);
+  }
 }
 
 async function resolveFeedbackUrl(): Promise<string | undefined> {

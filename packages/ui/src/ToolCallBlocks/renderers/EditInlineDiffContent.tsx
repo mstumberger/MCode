@@ -9,7 +9,7 @@ import { inferCodeLanguage, type PatchCodeViewerSource } from "@/lib/codeViewer.
 import { getPlainTextPatchPreviewLines } from "@/lib/patchDiffPreview.js";
 import type { CodePreviewSettings } from "@/lib/codePreviewSettings.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
-import type { Theme } from "@/useTheme.js";
+import { resolveTheme, type Theme } from "@/useTheme.js";
 
 export {
   buildHighlightedLightweightDiffCode as buildInlineDiffHighlightCode,
@@ -30,7 +30,12 @@ function resolveInlineDiffHighlightTheme(
     return codePreviewSettings.lightTheme;
   }
 
-  return theme === "dark" || theme === "zai-dark"
+  if (!theme) {
+    return codePreviewSettings.lightTheme;
+  }
+
+  // Route through resolveTheme's light/dark branch so dark variants (e.g. green themes) never fall into the light code theme.
+  return resolveTheme(theme) === "dark"
     ? codePreviewSettings.darkTheme
     : codePreviewSettings.lightTheme;
 }

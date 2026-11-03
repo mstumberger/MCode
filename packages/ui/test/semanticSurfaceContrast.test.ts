@@ -199,11 +199,15 @@ const paletteScope = parseDeclarations(tailwindThemeCss);
 // 默认亮主题的语义 token 定义在 Tailwind v4 的 @theme 块，其余主题以类选择器覆盖级联。
 const baseThemeScope = parseDeclarations(extractBlock(stylesCss, "@theme"));
 const rootScope = parseDeclarations(extractBlock(stylesCss, ":root"));
+// Green variants are delta overrides of .theme-zai-dark: the variant block comes first, then the zai-dark base block, forming the cascade scope.
 const themeSelectors = {
-  defaultLight: "@theme",
-  defaultDark: ".dark",
-  zaiLight: ".theme-zai-light",
-  zaiDark: ".theme-zai-dark",
+  defaultLight: ["@theme"],
+  defaultDark: [".dark"],
+  zaiLight: [".theme-zai-light"],
+  zaiDark: [".theme-zai-dark"],
+  zaiDarkGreen: [".theme-zai-dark-green", ".theme-zai-dark"],
+  zaiDarkForest: [".theme-zai-dark-forest", ".theme-zai-dark"],
+  zaiDarkPine: [".theme-zai-dark-pine", ".theme-zai-dark"],
 } as const;
 const parentBackgrounds = [
   "background",
@@ -216,12 +220,14 @@ const parentBackgrounds = [
 const semantics = ["warning", "destructive", "success", "progress"] as const;
 
 describe("remote UI semantic surface tokens", () => {
-  it("keeps all 96 theme/background/semantic combinations readable with real token values", () => {
+  it("keeps all 168 theme/background/semantic combinations readable with real token values", () => {
     const combinations: string[] = [];
     const violations: string[] = [];
-    for (const [theme, selector] of Object.entries(themeSelectors)) {
-      const themeScope = parseDeclarations(extractBlock(stylesCss, selector));
-      const scopes: Scope = [themeScope, baseThemeScope, paletteScope];
+    for (const [theme, selectors] of Object.entries(themeSelectors)) {
+      const themeScope: Scope = selectors.map((selector) =>
+        parseDeclarations(extractBlock(stylesCss, selector)),
+      );
+      const scopes: Scope = [...themeScope, baseThemeScope, paletteScope];
       const pageBackground = resolveToken("--color-background", scopes);
       if (pageBackground.alpha !== 1) {
         throw new Error(`--color-background must be opaque in ${theme}`);
@@ -245,16 +251,16 @@ describe("remote UI semantic surface tokens", () => {
         }
       }
     }
-    expect(combinations).toHaveLength(96);
+    expect(combinations).toHaveLength(168);
     // 阈值 4.5:1 是 §8.3 合同的硬门禁；失败即 token 取值的规格缺陷，修 token 并回写文档。
     expect(violations).toEqual([]);
   });
 
-  it("远程标签、侧栏和设置导航在四个主题中达到 4.5:1", () => {
+  it("keeps remote labels, sidebar and settings navigation at 4.5:1 across all shipped themes", () => {
     const violations: string[] = [];
-    for (const [theme, selector] of Object.entries(themeSelectors)) {
+    for (const [theme, selectors] of Object.entries(themeSelectors)) {
       const scopes: Scope = [
-        parseDeclarations(extractBlock(stylesCss, selector)),
+        ...selectors.map((selector) => parseDeclarations(extractBlock(stylesCss, selector))),
         rootScope,
         baseThemeScope,
         paletteScope,
@@ -284,13 +290,17 @@ describe("remote UI semantic surface tokens", () => {
     expect(violations).toEqual([]);
   });
 
-  it("registers every remote descriptor token triplet in all four themes", () => {
+  it("registers every remote descriptor token triplet in all shipped themes", () => {
     const descriptors = ["remote-ssh", "remote-wsl", "remote-docker"] as const;
     const channels = ["surface", "foreground", "border"] as const;
 
-    for (const [theme, selector] of Object.entries(themeSelectors)) {
-      const themeScope = parseDeclarations(extractBlock(stylesCss, selector));
-      const scopes: Scope = [themeScope, rootScope, baseThemeScope, paletteScope];
+    for (const [theme, selectors] of Object.entries(themeSelectors)) {
+      const scopes: Scope = [
+        ...selectors.map((selector) => parseDeclarations(extractBlock(stylesCss, selector))),
+        rootScope,
+        baseThemeScope,
+        paletteScope,
+      ];
       for (const descriptor of descriptors) {
         for (const channel of channels) {
           expect(
@@ -302,10 +312,14 @@ describe("remote UI semantic surface tokens", () => {
     }
   });
 
-  it("keeps the dedicated continuity panel readable in all four themes", () => {
-    for (const [theme, selector] of Object.entries(themeSelectors)) {
-      const themeScope = parseDeclarations(extractBlock(stylesCss, selector));
-      const scopes: Scope = [themeScope, rootScope, baseThemeScope, paletteScope];
+  it("keeps the dedicated continuity panel readable in all shipped themes", () => {
+    for (const [theme, selectors] of Object.entries(themeSelectors)) {
+      const scopes: Scope = [
+        ...selectors.map((selector) => parseDeclarations(extractBlock(stylesCss, selector))),
+        rootScope,
+        baseThemeScope,
+        paletteScope,
+      ];
       const panel = resolveToken("--color-remote-continuity-panel", scopes);
       const surface = resolveToken("--color-remote-continuity-panel-surface", scopes);
       const foreground = resolveToken("--color-remote-continuity-panel-foreground", scopes);
@@ -318,7 +332,7 @@ describe("remote UI semantic surface tokens", () => {
   });
 });
 
-it("真实设备日志时间戳在四主题背景上达到 4.5:1", () => {
+it("keeps real device log timestamps at 4.5:1 on all shipped theme backgrounds", () => {
   const html = renderToStaticMarkup(
     createElement(
       ZCodeIntlProvider,
@@ -344,9 +358,9 @@ it("真实设备日志时间戳在四主题背景上达到 4.5:1", () => {
     .find((name) => name.startsWith("text-"))
     ?.slice(5);
   expect(token).toBeTruthy();
-  for (const [theme, selector] of Object.entries(themeSelectors)) {
+  for (const [theme, selectors] of Object.entries(themeSelectors)) {
     const scopes: Scope = [
-      parseDeclarations(extractBlock(stylesCss, selector)),
+      ...selectors.map((selector) => parseDeclarations(extractBlock(stylesCss, selector))),
       rootScope,
       baseThemeScope,
       paletteScope,

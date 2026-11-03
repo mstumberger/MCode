@@ -39,6 +39,10 @@ function getThemeHeroPalette(theme: Theme): ThemeHeroPalette {
         description: "text-[#5C5C5C]",
       };
     case "zai-dark":
+    // Green variants reuse the zai-dark hero palette: variants only change surface tokens, the hero is an independent decoration layer.
+    case "zai-dark-green":
+    case "zai-dark-forest":
+    case "zai-dark-pine":
       return {
         meshBase: "#001d3d",
         meshLight: "#80beff",
