@@ -72,18 +72,18 @@ const ABOUT_MESSAGES: Record<
   }
 > = {
   "zh-CN": {
-    aboutTitle: "关于 ZCode",
+    aboutTitle: "关于 MCode",
     versionLabel: "版本",
     okButtonLabel: "确定",
     optimizedForAppleSilicon: "已针对 Apple Silicon 优化。",
-    copyright: (year) => `版权所有 © ${year} ZCode。`,
+    copyright: (year) => `版权所有 © ${year} MCode。`,
   },
   "en-US": {
-    aboutTitle: "About ZCode",
+    aboutTitle: "About MCode",
     versionLabel: "version",
     okButtonLabel: "OK",
     optimizedForAppleSilicon: "Optimized for Apple Silicon.",
-    copyright: (year) => `Copyright © ${year} ZCode.`,
+    copyright: (year) => `Copyright © ${year} MCode.`,
   },
 };
 

@@ -433,6 +433,54 @@ const RULES = [
     include: /packages\/web\/test\/webLoginPage\.test\.ts$/,
   },
   {
+    // Fixup after the P0 commit: full-suite run surfaced test expectations still
+    // asserting the ZCode display name across desktop/about/tray/runtime-env,
+    // ui dialogs/popovers/skills/plugins and web share/remote pages.
+    id: "p0-display-expectations-sweep",
+    phase: "P0",
+    match: /("[^"\n]*ZCode[^"\n]*"|'[^'\n]*ZCode[^'\n]*')/,
+    replaceFn: mcodeInSpan,
+    include:
+      /packages\/(desktop\/test\/(about|desktopTray|desktopRuntimeEnv)\.test\.ts|ui\/test\/(confirmDialogRequiredAcknowledgement|pluginStoreListing|projectEditorLayout|skillsMentionProvider|workflowSaveControls)\.test\.ts|ui\/test\/highspeed\/HighspeedShareNoticeCard\.test\.ts|web\/test\/(conversationShareLandingPage|webRemoteControlDeviceListPage)\.test\.ts)$/,
+    note: "single- and double-quoted expectations; fixture device names flip together",
+  },
+  {
+    // Fixup after the P0 commit: display strings P0's double-quote-only rules
+    // missed - bare JSX text, template literals and single-quoted values in
+    // About, web remote-control copy, CUA panel titles, share clients and the
+    // en-US locale (MCP quota messages). These files contain no ZCode-bearing
+    // identifiers (verified), so a bare replacement is safe - except the brand
+    // component, which imports ZCodeAppLogo and gets exact-match rules.
+    id: "p0-missed-display-strings-bare",
+    phase: "P0",
+    match: "ZCode",
+    replace: "MCode",
+    include:
+      /packages\/(desktop\/src\/main\/about\.ts|web\/src\/web-remote-control\/(ui\/webRemoteControlConnectionSheet\.tsx|ui\/webRemoteControlDeviceListPage\.tsx|domain\/webRemoteControlScreenCopy\.ts))$/,
+  },
+  {
+    id: "p0-missed-display-strings-quoted",
+    phase: "P0",
+    match: /("[^"\n]*ZCode[^"\n]*"|'[^'\n]*ZCode[^'\n]*')/,
+    replaceFn: mcodeInSpan,
+    include:
+      /packages\/(web\/src\/web-remote-control\/ui\/webRemoteControlBrand\.tsx|web\/src\/share\/(conversationSharePreviewClient|mockConversationSharePreviewClient)\.ts|desktop\/src\/renderer\/cuaPermissionPanelMessages\.ts|ui\/src\/i18n\/locales\/en-US\.ts)$/,
+  },
+  {
+    id: "p0-missed-display-strings-exact",
+    phase: "P0",
+    match: ">ZCode</span>",
+    replace: ">MCode</span>",
+    include: /packages\/web\/src\/web-remote-control\/ui\/webRemoteControlBrand\.tsx$/,
+  },
+  {
+    id: "p0-boot-shell-comment",
+    phase: "P0",
+    match: "展示 ZCode SVG",
+    replace: "展示 MCode SVG",
+    include: /packages\/ui\/src\/Root\.tsx$/,
+  },
+  {
     id: "p1-builder-protocols-schemes",
     phase: "P1",
     match: 'schemes: ["zcode"],',

@@ -28,11 +28,14 @@ function readSvgSize(source: string): { width: number; height: number } {
 }
 
 describe("Provider built-in logo assets", () => {
-  it("Z.AI PNG 原样复用无额外留白的应用图标，不再误用同名旧 SVG", () => {
-    const source = readFileSync(new URL("../../desktop/build/icons/128x128.png", import.meta.url));
+  it("Z.AI 应用图标是独立品牌素材；rebrand 后不再镜像 MCode 应用图标", () => {
+    // rebrand(P1)：桌面应用图标换成 M 字形，z.ai provider 图标保留 z.ai 品牌（Z 字形），
+    // 原先「provider PNG 原样复用应用图标字节」的镜像契约随之结束；这里仍守住
+    // 尺寸与“两张图不再逐字节相同”的分界，防止未来又把应用图标复制进 provider 素材。
+    const appIcon = readFileSync(new URL("../../desktop/build/icons/128x128.png", import.meta.url));
     const packaged = readFileSync(new URL("model-provider-zai-app.png", assetDirectory));
-    expect(packaged.equals(source)).toBe(true);
     expect(readPngSize(packaged)).toEqual({ width: 128, height: 128 });
+    expect(packaged.equals(appIcon)).toBe(false);
   });
   it("来源清单中的每个内置 Logo 素材本身都是方形", () => {
     for (const { file } of manifest.logos) {

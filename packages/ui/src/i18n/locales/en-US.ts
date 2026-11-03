@@ -6973,9 +6973,9 @@ const enUS: Record<string, string> = {
   "chat.quota.startPlan.concurrentLimit.switchModel":
     "The current model request concurrency limit has been reached. Switch models to continue your current task.",
   "chat.quota.mcp.quotaExhausted":
-    'ZCode MCP "{server}" has used up today\'s quota. It resets tomorrow.',
+    'MCode MCP "{server}" has used up today\'s quota. It resets tomorrow.',
   "chat.quota.mcp.codingPlanRequired":
-    'No ZCode MCP "{server}" quota. Sign in or get a Coding Plan to use it.',
+    'No MCode MCP "{server}" quota. Sign in or get a Coding Plan to use it.',
   "chat.quota.providerLimited":
     "The current account quota or plan limit has been reached. Upgrade or adjust the plan to continue.",
   "chat.quota.action.upgrade": "Upgrade",

@@ -1492,7 +1492,7 @@ function RootInner({
         {requestSecurityBridgeNode}
         {remoteConnectionDialog}
         {directoryBrowserDialog}
-        {/* 修复原因：HTML 启动壳已经展示 ZCode SVG，但 React 接管 root 后旧壳会被整棵替换。
+        {/* 修复原因：HTML 启动壳已经展示 MCode SVG，但 React 接管 root 后旧壳会被整棵替换。
             之前阻塞恢复 tab / 初始 workspace 注入时重新渲染纯文字“加载中...”，所以启动被拆成两套 loading。
             这里复用同一套 SVG 启动画面，只把文案保留到 aria-label，保证视觉始终连续且不牺牲可访问性。 */}
         <RootStartupLoading label={loadingLabel} />
