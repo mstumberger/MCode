@@ -13,7 +13,19 @@ export interface BotSttConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Single forced language (ISO-639-1) when ZCODE_BOT_STT_LANGUAGE is set. */
   language?: string;
+  /** Constrained language set (e.g. ["en","sl"]): transcribe once per language.
+   *  Passes that agree collapse into one transcript; passes that diverge are all
+   *  surfaced so the downstream agent uses the coherent one. Replaces free
+   *  auto-detect, which hallucinated South-Slavic text for accented English. */
+  languages?: string[];
+}
+
+/** One transcription pass over the same audio with a fixed language hint. */
+export interface BotLanguageTranscription {
+  language: string;
+  text: string;
 }
 
 type EnvLike = Record<string, string | undefined>;
@@ -26,21 +38,26 @@ export function readBotSttConfig(env: EnvLike): BotSttConfig | null {
     return null;
   }
   const language = env.ZCODE_BOT_STT_LANGUAGE?.trim();
+  const languages = env.ZCODE_BOT_STT_LANGUAGES?.split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
   return {
     baseUrl: baseUrl.replace(/\/+$/u, ""),
     apiKey,
     model,
     ...(language ? { language } : {}),
+    ...(languages && languages.length > 0 ? { languages } : {}),
   };
 }
 
-export async function transcribeAudioAttachment(
+async function requestTranscription(
   config: BotSttConfig,
   input: {
     data: Uint8Array;
     attachment: Pick<BotInboundAttachment, "filename" | "mimeType">;
   },
-  fetchImpl: typeof fetch = fetch,
+  language: string | undefined,
+  fetchImpl: typeof fetch,
 ): Promise<string | null> {
   const form = new FormData();
   // BlobPart 需要 ArrayBuffer 支撑的视图；复制一次以摆脱 SharedArrayBuffer 兼容类型。
@@ -51,8 +68,8 @@ export async function transcribeAudioAttachment(
     input.attachment.filename,
   );
   form.append("model", config.model);
-  if (config.language) {
-    form.append("language", config.language);
+  if (language) {
+    form.append("language", language);
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AUDIO_TRANSCRIPTION_TIMEOUT_MS);
@@ -72,4 +89,31 @@ export async function transcribeAudioAttachment(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function transcribeAudioAttachment(
+  config: BotSttConfig,
+  input: {
+    data: Uint8Array;
+    attachment: Pick<BotInboundAttachment, "filename" | "mimeType">;
+  },
+  fetchImpl: typeof fetch = fetch,
+): Promise<BotLanguageTranscription[] | null> {
+  if (config.languages && config.languages.length > 0) {
+    // Constrained language set (en,sl): transcribe once per language. The language
+    // hint is a bias, not a lock - the pass with the correct language yields a clean
+    // transcript while the wrong-language pass yields pseudo-language gibberish.
+    // Near-identical passes collapse into one; diverging passes are all surfaced so
+    // the downstream agent picks the coherent variant.
+    const results = await Promise.all(
+      config.languages.map(async (language) => ({
+        language,
+        text: await requestTranscription(config, input, language, fetchImpl).catch(() => null),
+      })),
+    );
+    const passes = results.filter((entry): entry is BotLanguageTranscription => Boolean(entry.text));
+    return passes.length > 0 ? passes : null;
+  }
+  const text = await requestTranscription(config, input, config.language, fetchImpl).catch(() => null);
+  return text ? [{ language: config.language ?? "auto", text }] : null;
 }

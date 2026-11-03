@@ -124,12 +124,14 @@ describe("voice transcription", () => {
     });
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://stt.test/v1/audio/transcriptions");
+    // Contract since 1a9645d9: when a transcript exists the audio attachment is
+    // no longer forwarded to the model (the "review the attachment" boilerplate
+    // made sessions load unrelated skills instead of executing the instruction),
+    // and a reply-language directive is appended.
     expect(legacyTaskService.sendPrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining("hello from voice"),
-        attachments: [
-          expect.objectContaining({ kind: "audio", filename: "telegram-voice.ogg" }),
-        ],
+        content: "hello from voice\n\nReply in the same language as the transcribed voice message.",
+        attachments: undefined,
       }),
     );
     service.disposeAll();

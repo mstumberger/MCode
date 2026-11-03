@@ -57,7 +57,9 @@ describe("bot STT transcription", () => {
       },
       fetchMock as unknown as typeof fetch,
     );
-    expect(result).toBe("hello world");
+    // Both the dual-language and single-language paths return
+    // BotLanguageTranscription[] (language-tagged contract since 1a9645d9).
+    expect(result).toEqual([{ language: "en", text: "hello world" }]);
   });
 
   it("returns null on non-ok responses", async () => {

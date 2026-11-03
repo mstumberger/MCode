@@ -58,9 +58,8 @@ ZCODE_BOT_STT_LANGUAGE=sl
 ```
 
 - The base URL must NOT include `/audio/transcriptions`; the code appends it.
-- `ZCODE_BOT_STT_LANGUAGE` uses ISO-639-1 codes (`sl`, not `Slovenian`); without it, language autodetect on short Slovenian clips frequently misdetects (observed: Romanian/Finnish on a 3 s clip).
+- `ZCODE_BOT_STT_LANGUAGES` (e.g. `en,sl`) - constrained language set: the audio is transcribed once per language in parallel. Passes that agree collapse into one transcript; passes that diverge are all surfaced in the prompt ("Voice transcript (en): ... / Voice transcript (sl): ...") and the agent uses the coherent variant. This replaces free auto-detect, which hallucinated South-Slavic text for accented English (verified 2026-11-01). Setting a single `ZCODE_BOT_STT_LANGUAGE` still works as a hard override for strictly single-language traffic.
 - Desktop loads `.env.local` at startup via `packages/desktop/src/main/desktopRuntimeEnv.ts` (`loadHostProcessEnvFromLocalFiles`) and passes it to the services node process. **Changing these vars requires a desktop app restart**; the running bot does not hot-reload them.
-- `ZCODE_BOT_STT_LANGUAGE` omission falls back to Whisper autodetect - only do this for multilingual traffic.
 
 TTS configuration (same file):
 
@@ -73,7 +72,8 @@ ZCODE_BOT_TTS_FORMAT=opus
 ```
 
 - All four non-format vars are required or the voice summary is silently skipped.
-- `voice`: OpenAI alias names (`alloy`, `nova`, ...) and `default` resolve to the OmniVoice engine default voice; a custom/cloned voice uses its VoiceStudio voice-profile id or unique name instead.
+- The voice summary speaks a SHORT digest of the reply, not the full text: markdown is stripped (link labels kept, emphasis/code markers removed) and the text is cut at sentence boundaries up to ~350 chars (`buildSpeechSummary` in `botsService.ts`) - replies lead with the outcome, so the first sentences carry it. The full reply still arrives as text bubbles.
+- `voice`: an OpenAI alias (`alloy`, `nova`, ...) resolves to the OmniVoice engine default, which is **zero-shot and randomized - every synthesis gets a different speaker**. Pin a fixed voice instead: create a design profile (`POST /profiles`, `kind=design`, `name=...`, `instruct=<gender/tags>`, `vd_states={"Gender":"female","Age":"adult","Pitch":"warm","Style":"gentle"}`, fixed `seed` is the profile identity) and set `ZCODE_BOT_TTS_VOICE=<profile_id>` (exact id wins in voice resolution; `GET /profiles` lists ids). A cloned voice from a reference recording (`kind=clone`) works the same way.
 - `format` must stay `opus` for Telegram voice bubbles.
 - The bot must ALSO have `voiceSummary: true` in its `bot-config.v3.json` entry (opt-in, default off).
 

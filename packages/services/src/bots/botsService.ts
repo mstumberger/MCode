@@ -2243,9 +2243,65 @@ export function createBotsService(
   }
 
   /**
+   * Voice-summary helper: compress a reply into a short speakable digest.
+   * Strips markdown markers (links keep their label, emphasis/code symbols removed),
+   * then truncates at sentence boundaries up to the limit. Replies lead with the
+   * outcome, so the first sentences carry it; the full text still arrives as
+   * text bubbles.
+   */
+  function buildSpeechSummary(text: string, maxChars = 350): string {
+    const speakable = text
+      .replace(/\[([^\]]+)\]\([^)]*\)/gu, "$1")
+      .replace(/[*_`#>|]/gu, "")
+      // Speech-friendly cleanup: standalone dashes/hyphens get spelled out letter
+      // by letter by TTS ("pomišljaj/crta"), so turn them into comma pauses;
+      // ellipses get read as "pika pika", so collapse them to a period; list
+      // bullets get read as "minus", so drop them entirely.
+      .replace(/(^|\n)\s*[-*•]\s+/gu, "$1")
+      .replace(/\s[–—-]\s/gu, ", ")
+      .replace(/\.{3,}/gu, ".")
+      .replace(/\n+/gu, ". ")
+      .replace(/[.:;]\s*\./gu, ".")
+      .replace(/([.!?])\s*[.!:;]+\s*/gu, "$1 ")
+      .replace(/\s+/gu, " ")
+      .trim();
+    if (speakable.length <= maxChars) {
+      return speakable;
+    }
+    const sentences = speakable.match(/[^.!?…]+[.!?…]+|\S+$/gu) ?? [speakable];
+    let summary = "";
+    for (const sentence of sentences) {
+      if (summary && (summary + sentence).length > maxChars) break;
+      summary += sentence;
+    }
+    return (summary.trim() || speakable.slice(0, maxChars)).trim();
+  }
+
+  /**
    * 语音转文字：仅在环境变量配置了 STT 后端且该 bot 未显式关闭时尝试。
    * 转写失败静默回落到纯附件行为，不阻塞消息链路。
+   * Returns the transcript text for the prompt; when the constrained language
+   * set diverges, both passes are surfaced and the downstream agent picks the
+   * coherent variant (free detection misjudges accented English as a
+   * neighbouring language).
    */
+  function formatBotVoiceTranscripts(
+    passes: Array<{ language: string; text: string }>,
+  ): string {
+    if (passes.length <= 1) {
+      return passes[0]?.text ?? "";
+    }
+    const first = (passes[0]?.text ?? "").trim().toLowerCase();
+    const allSame = passes.every((entry) => entry.text.trim().toLowerCase() === first);
+    if (allSame) {
+      return passes[0]?.text ?? "";
+    }
+    const lines = passes
+      .map((entry) => `Voice transcript (${entry.language}): ${entry.text}`)
+      .join("\n");
+    return `${lines}\nThe voice message was transcribed once per configured language; use the coherent variant as the user's instruction.`;
+  }
+
   async function transcribeBotAudioAttachment(
     bot: BotConfig,
     attachment: BotInboundAttachment,
@@ -2259,10 +2315,11 @@ export function createBotsService(
       return null;
     }
     try {
-      return await transcribeAudioAttachment(config, {
+      const passes = await transcribeAudioAttachment(config, {
         data,
         attachment: { filename: attachment.filename, mimeType: attachment.mimeType },
       });
+      return passes ? formatBotVoiceTranscripts(passes) : null;
     } catch (error) {
       botsLogger.warn(
         undefined,
@@ -2311,6 +2368,17 @@ export function createBotsService(
       if (!voiceTranscript && cached.kind === "audio") {
         voiceTranscript = await transcribeBotAudioAttachment(bot, cached, resolved.data);
       }
+      if (!isGroup && cached.kind === "audio" && voiceTranscript) {
+        // Behavior fix: once transcription succeeds the transcript is already in
+        // the prompt (sole body for voice-only messages, first line when the
+        // message also has text). Forwarding the audio as an attachment would
+        // make the model treat it as pending input via the "review the
+        // attachment" boilerplate - loading unrelated skills (e.g. marko-voice)
+        // or spinning on file reads instead of executing the instruction. On
+        // transcription failure (null) the original passthrough remains as the
+        // fallback.
+        continue;
+      }
       if (isGroup) {
         // 旧兼容入口只把文件路径拼进正文，既丢失 V4 附件又破坏末尾引用块；群输入只走标准寄存。
         zcodeAttachments.push({
@@ -2349,6 +2417,13 @@ export function createBotsService(
     if (voiceTranscript && trimmed) {
       // 用户已经附上文字时只补一行转写；纯语音消息则直接把转写作为 prompt 正文。
       fileLines.unshift(msg(locale, "voiceTranscriptLine", { text: voiceTranscript }));
+    }
+    if (voiceTranscript) {
+      // Required behavior: the reply language must follow the voice message
+      // itself (body and voice summary alike), so the model does not fall back
+      // to the UI language or default English in mixed-language sessions.
+      // Models usually follow the input language; this pins it explicitly.
+      fileLines.push("Reply in the same language as the transcribed voice message.");
     }
     const baseContent =
       trimmed ||
@@ -6248,7 +6323,13 @@ export function createBotsService(
           .map((part) => part.content)
           .join("")
           .trim();
-        await sendCompletionVoiceSummary(replyMessages.join("\n\n") || streamedAssistantText);
+        // The voice reply speaks only a short digest: markdown stripped, cut at
+        // sentence boundaries (replies lead with the outcome), instead of
+        // speaking the whole reply. The full content still arrives as text
+        // bubbles.
+        await sendCompletionVoiceSummary(
+          buildSpeechSummary(replyMessages.join("\n\n") || streamedAssistantText),
+        );
       }
     };
     const handleStreamEvent = async (
