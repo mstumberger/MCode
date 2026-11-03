@@ -3,6 +3,7 @@ import { runtimeInputMetadata } from "../../agent/runtime-input-presentation.js"
 import { withConversationQuotes } from "../helpers/conversation-quotes.js";
 import { ensureGroupTaskPermissionScope } from "./input-intent-persistence.js";
 import { prepareOffPeakTurn } from "../off-peak/runtime.js";
+import { resolvePlanRoutedSelection } from "../model-selection.js";
 import {
   CoreErrorType,
   HookEventName,
@@ -142,11 +143,13 @@ export async function executeTurnCommand(
   // 这里在任何 await 之前冻结本轮事实；后续配置变化只作用于下一轮。
   const offPeakTurn = prepareOffPeakTurn(this, options);
   options = offPeakTurn.options;
+  // Plan 路由只覆盖「无显式选择」的默认 arm：intent/execution Selection 仍按原优先级。
+  const planRoute = resolvePlanRoutedSelection(this, options?.intent);
   const admittedModelSelection =
     options?.intent?.modelSelection ??
     (options && "executionSelection" in options
       ? options.executionSelection
-      : this.getSessionModelSelection());
+      : planRoute.selection);
   // 加速轮期间新输入可以更新 Session 续跑选择；卡过期必须回到本轮启动时的普通模型。
   const highspeedFallbackSelection = options?.modelExecution?.selectionFallback
     ? structuredClone(
@@ -268,6 +271,25 @@ export async function executeTurnCommand(
             : undefined;
       } catch (error) {
         let reportedCreationError = error;
+        // Plan 路由目标建模失败时退回会话模型继续本轮：路由是便利配置，配错模型不能让
+        // plan turn 直接失败。带 selectionFallback 声明的执行链路保持原退回机制，不叠加。
+        if (planRoute.routed && rewindCommand === null && !options?.modelExecution?.selectionFallback) {
+          try {
+            admittedModel = createTurnModel(this, { selection: this.getSessionModelSelection() });
+            this.logger?.warn("Plan-mode routed model unavailable; continuing on session model", {
+              ...traceContextToLogContext(turnTraceContext),
+              event: "model.routing.plan_mode.creation_fallback",
+              module: "core.runtime",
+              status: "completed",
+              fromProviderId: admittedModelSelection?.providerId,
+              fromModelId: admittedModelSelection?.modelId,
+              errorMessage: error instanceof Error ? error.message : String(error),
+            });
+          } catch (fallbackError) {
+            // 会话模型的错误对用户可操作，替换路由目标的 Registry 错误后再走原失败链路。
+            reportedCreationError = fallbackError;
+          }
+        }
         const creationFallbackMatch = matchExecutionSelectionCreationFallback({
           error,
           selection: admittedModelSelection,

@@ -4,6 +4,7 @@ import type { CollaborationMode } from "../interfaces/session.port.js";
 import type { McpServerConfig } from "../interfaces/mcp.port.js";
 import type { HooksRuntimeConfig, HooksRuntimeConfigPatch } from "../hooks/index.js";
 import type { PluginConfig, PluginOptionValues } from "../plugins/index.js";
+import type { ModelSelection } from "../model/model.js";
 
 // ============================================================
 // Config Key Types
@@ -70,6 +71,9 @@ export const ConfigKey = {
 
   // Model anomaly guards
   ModelAnomalyGuard: "modelAnomalyGuard",
+
+  // Model routing（按工作类型的模型路由；角色目标必须是完整 ModelSelection）
+  ModelRouting: "modelRouting",
 
   // Hooks
   Hooks: "hooks",
@@ -140,9 +144,11 @@ export type ConfigValue<K extends ConfigKey> = K extends "modelStream.idleTimeou
                                         ? "text" | "json"
                                         : K extends "toolConcurrency.maxConcurrency"
                                           ? number
-                                          : K extends "modelAnomalyGuard"
+                                        : K extends "modelAnomalyGuard"
                                             ? ModelAnomalyGuardConfig
-                                            : K extends "hooks"
+                                            : K extends "modelRouting"
+                                              ? ModelRoutingConfig
+                                              : K extends "hooks"
                                               ? HooksRuntimeConfig
                                               : K extends "ui.locale"
                                                 ? UiLocale
@@ -250,6 +256,7 @@ export interface RuntimeConfig {
   };
   toolConcurrency: ToolConcurrencyConfig;
   modelAnomalyGuard: ModelAnomalyGuardConfig;
+  modelRouting?: ModelRoutingConfig;
   hooks: HooksRuntimeConfig;
   ui: {
     locale: UiLocale;
@@ -272,6 +279,7 @@ export interface RuntimeConfigPatch {
   logging?: Partial<RuntimeConfig["logging"]>;
   toolConcurrency?: Partial<RuntimeConfig["toolConcurrency"]>;
   modelAnomalyGuard?: Partial<RuntimeConfig["modelAnomalyGuard"]>;
+  modelRouting?: ModelRoutingConfig;
   hooks?: HooksRuntimeConfigPatch;
   ui?: Partial<RuntimeConfig["ui"]>;
 }
@@ -370,6 +378,17 @@ export interface ModelAnomalyGuardConfig {
   toolCallWarningThreshold?: number;
   repeatedToolCallWarningThreshold: number;
   maxBudgetWarningsPerTurn: number;
+}
+
+/**
+ * 按工作类型路由模型的角色配置。角色只声明「这类工作用哪个模型」；
+ * 解析与失败退回归 runtime 所有（详见 core model-routing helper）。
+ * - planMode：plan 模式激活期间的普通 turn（显式提交选择不参与路由）。
+ * - utility：压缩摘要、标题、目标完成验证等总结类 sidecar 的默认模型。
+ */
+export interface ModelRoutingConfig {
+  planMode?: ModelSelection;
+  utility?: ModelSelection;
 }
 
 // ============================================================
