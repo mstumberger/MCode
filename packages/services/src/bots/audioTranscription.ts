@@ -100,9 +100,11 @@ export async function transcribeAudioAttachment(
   fetchImpl: typeof fetch = fetch,
 ): Promise<BotLanguageTranscription[] | null> {
   if (config.languages && config.languages.length > 0) {
-    // 约束语言集（en,sl）：每种语言各转写一次。语言 hint 是偏置不是锁——
-    // 正确语言的 pass 得到干净转写，错误语言的 pass 会得到伪语言乱码；
-    // 两个 pass 接近时合并为一个，分歧时全部上抛由下游 agent 取 coherent 版本。
+    // Constrained language set (en,sl): transcribe once per language. The language
+    // hint is a bias, not a lock - the pass with the correct language yields a clean
+    // transcript while the wrong-language pass yields pseudo-language gibberish.
+    // Near-identical passes collapse into one; diverging passes are all surfaced so
+    // the downstream agent picks the coherent variant.
     const results = await Promise.all(
       config.languages.map(async (language) => ({
         language,

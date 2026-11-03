@@ -57,7 +57,8 @@ describe("bot STT transcription", () => {
       },
       fetchMock as unknown as typeof fetch,
     );
-    // 双语言/单语言路径统一返回 BotLanguageTranscription[]（1a9645d9 起的语言标注契约）。
+    // Both the dual-language and single-language paths return
+    // BotLanguageTranscription[] (language-tagged contract since 1a9645d9).
     expect(result).toEqual([{ language: "en", text: "hello world" }]);
   });
 
