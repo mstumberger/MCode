@@ -159,6 +159,11 @@ export async function submitDuringActiveTurn(input: {
       },
     );
     if (result.kind === "started_turn" || result.kind === "command_result") {
+      if (result.result.exit) {
+        // busy turn 下的 /exit 等同双击 Ctrl+C：不应用任何状态，直接退。
+        input.options.exitTui?.(0);
+        return;
+      }
       if (!compactCommand) {
         input.setMessages((current) =>
           insertLocalUserMessageAt(current, localUserMessage, input.messageInsertIndex),
@@ -258,6 +263,10 @@ export async function submitIdleTurn(input: {
       onEvent: input.applySessionEvent,
       requestPermission: input.requestPermission,
     });
+    if (result.exit) {
+      input.options.exitTui?.(0);
+      return;
+    }
     input.applyResult(compactCommand ? { ...result, response: "" } : result);
   } catch (error) {
     if (abortController.signal.aborted) {

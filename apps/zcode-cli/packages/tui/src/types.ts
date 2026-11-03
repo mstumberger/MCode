@@ -151,6 +151,8 @@ export type TuiRestoredTranscriptPart =
 
 export type TuiSubmitPromptResult = {
   effortOptions?: readonly TuiEffortOption[];
+  /** 命令中心产生的退出意图：TUI 在应用该结果前关闭 renderer，进程退出仍由 onExit 所有。 */
+  exit?: boolean;
   modelOptions?: readonly TuiModelOption[];
   locale?: SupportedLocale;
   loginRequired?: boolean;
@@ -334,6 +336,8 @@ export type TuiOptions = {
   listModelOptions?: () => Promise<readonly TuiModelOption[]>;
   slashCommands?: readonly TuiSlashCommandSuggestion[];
   submitPrompt: TuiSubmitPrompt;
+  /** /exit 的退出面：由 tui.tsx 注入，关掉 renderer 是进程退出的唯一触发者。 */
+  exitTui?: (code: number) => void;
   subscribeSessionEvents?: TuiSubscribeSessionEvents;
   subscribeThemeMode?: (listener: (mode: UiThemeMode) => void) => () => void;
   setTerminalBackgroundColor?: (color: string) => void;

@@ -19,6 +19,12 @@ export type SlashCommand =
     }
   | {
       args: string;
+      name: "exit";
+      rawName: string;
+      type: "known";
+    }
+  | {
+      args: string;
       name: "fork";
       rawName: string;
       type: "known";

@@ -69,6 +69,7 @@ Slash Commands:
   /rewind [latest|checkpointId]  Show latest checkpoint or restore workspace files
   /skill [name] [task]  List skills, or force the next prompt to load one
   /goal [action]        Show or set the current session goal
+  /exit                 Exit the terminal UI (alias: /quit)
 `,
   },
   tui: {

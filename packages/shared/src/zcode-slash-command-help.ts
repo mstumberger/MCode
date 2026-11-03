@@ -196,4 +196,15 @@ export const BUILTIN_ZCODE_SLASH_COMMAND_HELP_ENTRIES: readonly BuiltinZCodeSlas
     summary: "Design and launch a dynamic workflow for a task.",
     usage: "/workflow [what the workflow should accomplish]",
   },
+  {
+    aliases: ["quit"],
+    details: [
+      "Closes the terminal UI and ends the process with exit code 0.",
+      "Also works while a turn is running and behaves like pressing Ctrl-C twice.",
+      "Only available in the interactive TUI; headless runs report availability instead.",
+    ],
+    name: "exit",
+    summary: "Exit the terminal UI.",
+    usage: "/exit",
+  },
 ] as const;
