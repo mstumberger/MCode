@@ -55,7 +55,7 @@ describe("about", () => {
     expect(options).toMatchObject({
       applicationName: "MCode Desktop App",
       applicationVersion: "version 0.1.7",
-      copyright: "Copyright © 2026 MCode.",
+      copyright: "Copyright © 2026 Z.ai and MCode contributors.",
       credits: "Optimized for Apple Silicon.",
     });
   });
@@ -66,7 +66,7 @@ describe("about", () => {
     expect(options).toMatchObject({
       applicationName: "MCode Desktop App",
       applicationVersion: "版本 0.1.7",
-      copyright: "版权所有 © 2026 MCode。",
+      copyright: "版权所有 © 2026 Z.ai 与 MCode 贡献者。",
       credits: "已针对 Apple Silicon 优化。",
     });
   });
@@ -77,7 +77,7 @@ describe("about", () => {
   });
 
   it("版权年份可按调用方传入覆盖", () => {
-    expect(formatAboutCopyright(2027, "en-US")).toBe("Copyright © 2027 MCode.");
-    expect(formatAboutCopyright(2027, "zh-CN")).toBe("版权所有 © 2027 MCode。");
+    expect(formatAboutCopyright(2027, "en-US")).toBe("Copyright © 2027 Z.ai and MCode contributors.");
+    expect(formatAboutCopyright(2027, "zh-CN")).toBe("版权所有 © 2027 Z.ai 与 MCode 贡献者。");
   });
 });

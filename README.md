@@ -1,7 +1,13 @@
-# ZCode
+# MCode
+
+> **Fork notice:** MCode is a fork of [zai-org/ZCode](https://github.com/zai-org/ZCode)
+> (Apache-2.0) containing modifications, most notably the MCode product rebrand.
+> Changes are documented in the git history; original code is © its respective
+> authors under the terms of the root [LICENSE](LICENSE). See also
+> [NOTICE.md](NOTICE.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 <div align="center">
-  <img src="public/logo/icons/1024x1024.png" alt="ZCode" width="128" height="128" />
+  <img src="public/logo/icons/1024x1024.png" alt="MCode" width="128" height="128" />
 </div>
 <p align="center">
   <a href="https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=47ag983c-8fcb-4d6d-814b-5395193a712c&amp;qr_code=true">飞书社群</a> ·

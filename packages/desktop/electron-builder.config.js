@@ -707,6 +707,9 @@ export default {
     : {}),
   extraResources: [
     { from: resolve(workspaceRoot, noticesFileName), to: noticesFileName },
+    // Apache-2.0 §4.1：随二进制分发携带本项目许可证与 NOTICE；第三方声明见 THIRD-PARTY-NOTICES.md。
+    { from: resolve(workspaceRoot, "LICENSE"), to: "LICENSE" },
+    { from: resolve(workspaceRoot, "NOTICE.md"), to: "NOTICE.md" },
     ...(targetPlatform.os === "darwin"
       ? [
           ...(shouldPackageComputerUseHelper
