@@ -117,9 +117,17 @@ describe("release installer", () => {
     const layout = await resolveCanonicalServerLayout(aliasServerRoot);
     const installed = await new ReleaseInstaller(layout).installArchive({ archivePath, target: "linux-x64", version: "1.2.5" });
     await new ReleaseManager(layout).applyPending();
-    // runtime/node 换成指向系统 echo 的链接：能观察 launcher 实际 exec 的 release，又不触发 XProtect 首次扫描。
+    // 修复原因：runtime/node 之前 symlink 到系统 /bin/echo 以观察 launcher 实际 exec 的 release。
+    // uutils multicall coreutils（本机 coreutils-from-uutils 包与新版 GitHub runner 镜像都是）
+    // 按 argv0 分发内建工具，被以 "node" 名义 exec 时直接拒绝
+    // （"Requested utility `node` does not match executable name"），测试在两类环境全部失败。
+    // 改为写一个打印全部参数的可执行 stub：不依赖任何 coreutils 实现，语义与原 echo 技巧一致，
+    // 同样不会触发真实 node 的首次扫描。
     await rm(join(installed.releaseDir, "runtime", "node"));
-    await symlink("/bin/echo", join(installed.releaseDir, "runtime", "node"));
+    const nodeStubPath = join(installed.releaseDir, "runtime", "node");
+    await writeFile(nodeStubPath, "#!/bin/sh\nprintf '%s\\n' \"$*\"\n", "utf8");
+    const { chmod } = await import("node:fs/promises");
+    await chmod(nodeStubPath, 0o755);
     const output = await new Promise<string>((resolve, reject) => {
       execFile("/bin/sh", [join(aliasServerRoot, "bin", "zcode"), "serve", "--daemon"], (error, stdout, stderr) => {
         if (error) reject(new Error(`${error.message}: ${stderr}`));
