@@ -121,7 +121,13 @@ export async function prepareModelTelemetryEnv(
   env: EnvRecord,
   options: PrepareModelTelemetryOptions = {},
 ): Promise<EnvRecord> {
-  if (!resolveOtlpTraceEndpoint(env) || isExplicitlyDisabled(env.ZCODE_MODEL_TELEMETRY_ENABLED)) {
+  // ZCODE_TELEMETRY_ENABLED 是全端遥测总开关（shared env 同名变量会同时清空
+  // 桌面 ARMS/事件上报地址）；显式关闭时这里同样不创建 OTLP Owner。
+  if (
+    !resolveOtlpTraceEndpoint(env) ||
+    isExplicitlyDisabled(env.ZCODE_MODEL_TELEMETRY_ENABLED) ||
+    isExplicitlyDisabled(env.ZCODE_TELEMETRY_ENABLED)
+  ) {
     return env;
   }
   const existingInstallationId = normalizeTelemetryDeviceMid(env.ZCODE_TELEMETRY_DEVICE_MID);

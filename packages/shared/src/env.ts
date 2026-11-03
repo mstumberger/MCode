@@ -49,14 +49,31 @@ export const RUNTIME_ZCODE_DEBUG =
   typeof process !== "undefined" ? process.env.ZCODE_DEBUG : undefined;
 
 // ── 构建期可选能力（见 docs/desktop/build-time-optional-capabilities.md），未注入时一律关闭 ──
+
+/**
+ * 运行期遥测总开关：`ZCODE_TELEMETRY_ENABLED` 显式为 `0`/`false`/`off`/`disabled`
+ * （与 CLI `ZCODE_MODEL_TELEMETRY_ENABLED` 的取值口径一致）时，即使构建期注入了
+ * ARMS/事件上报地址也一律按空处理（SDK 以 enable=false 初始化、事件在发送前
+ * 直接返回）。未设置或为其他值时不改变构建期结果；该开关只做单向收紧，
+ * 不能凭运行期变量启用上报。CLI 的 OTLP 遥测在
+ * `apps/zcode-cli/packages/telemetry/src/bootstrap.ts` 读取同一变量。
+ */
+function isRuntimeTelemetryDisabled(): boolean {
+  if (typeof process === "undefined") return false;
+  const raw = process.env.ZCODE_TELEMETRY_ENABLED?.trim().toLowerCase();
+  return raw === "0" || raw === "false" || raw === "off" || raw === "disabled";
+}
+
 /** ARMS RUM 上报地址；为空时 SDK 以 enable=false 初始化，不产生上报。 */
 export const ZCODE_ARMS_RUM_ENDPOINT: string =
-  typeof __ZCODE_ARMS_RUM_ENDPOINT__ !== "undefined" ? __ZCODE_ARMS_RUM_ENDPOINT__ : "";
+  isRuntimeTelemetryDisabled() || typeof __ZCODE_ARMS_RUM_ENDPOINT__ === "undefined"
+    ? ""
+    : __ZCODE_ARMS_RUM_ENDPOINT__;
 /** 事件上报（数仓）地址；为空时不上报。 */
 export const ZCODE_TELEMETRY_REPORT_ENDPOINT: string =
-  typeof __ZCODE_TELEMETRY_REPORT_ENDPOINT__ !== "undefined"
-    ? __ZCODE_TELEMETRY_REPORT_ENDPOINT__
-    : "";
+  isRuntimeTelemetryDisabled() || typeof __ZCODE_TELEMETRY_REPORT_ENDPOINT__ === "undefined"
+    ? ""
+    : __ZCODE_TELEMETRY_REPORT_ENDPOINT__;
 /** 桌面自动更新是否启用。 */
 export const ZCODE_AUTO_UPDATE_ENABLED: boolean =
   typeof __ZCODE_AUTO_UPDATE_ENABLED__ !== "undefined" ? __ZCODE_AUTO_UPDATE_ENABLED__ : false;

@@ -65,3 +65,50 @@ describe("shared runtime env", () => {
     expect(env.mapZCodeEnvToArmsRumEnv("development")).toBe("local");
   });
 });
+
+describe("运行期遥测总开关 ZCODE_TELEMETRY_ENABLED", () => {
+  const originalValue = process.env.ZCODE_TELEMETRY_ENABLED;
+
+  afterEach(() => {
+    if (originalValue === undefined) {
+      delete process.env.ZCODE_TELEMETRY_ENABLED;
+    } else {
+      process.env.ZCODE_TELEMETRY_ENABLED = originalValue;
+    }
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["0", "false", "off", "disabled"])(
+    "显式 %s 时清空构建期注入的上报地址",
+    async (value) => {
+      vi.stubGlobal("__ZCODE_ARMS_RUM_ENDPOINT__", "https://arms.example.com/rum");
+      vi.stubGlobal("__ZCODE_TELEMETRY_REPORT_ENDPOINT__", "https://arms.example.com/event");
+      process.env.ZCODE_TELEMETRY_ENABLED = value;
+
+      const env = await importFreshEnvModule();
+
+      expect(env.ZCODE_ARMS_RUM_ENDPOINT).toBe("");
+      expect(env.ZCODE_TELEMETRY_REPORT_ENDPOINT).toBe("");
+    },
+  );
+
+  it("未设置总开关时保留构建期注入的上报地址", async () => {
+    vi.stubGlobal("__ZCODE_ARMS_RUM_ENDPOINT__", "https://arms.example.com/rum");
+    vi.stubGlobal("__ZCODE_TELEMETRY_REPORT_ENDPOINT__", "https://arms.example.com/event");
+    delete process.env.ZCODE_TELEMETRY_ENABLED;
+
+    const env = await importFreshEnvModule();
+
+    expect(env.ZCODE_ARMS_RUM_ENDPOINT).toBe("https://arms.example.com/rum");
+    expect(env.ZCODE_TELEMETRY_REPORT_ENDPOINT).toBe("https://arms.example.com/event");
+  });
+
+  it("总开关为非关闭值时不收紧构建期结果", async () => {
+    vi.stubGlobal("__ZCODE_ARMS_RUM_ENDPOINT__", "https://arms.example.com/rum");
+    process.env.ZCODE_TELEMETRY_ENABLED = "true";
+
+    const env = await importFreshEnvModule();
+
+    expect(env.ZCODE_ARMS_RUM_ENDPOINT).toBe("https://arms.example.com/rum");
+  });
+});

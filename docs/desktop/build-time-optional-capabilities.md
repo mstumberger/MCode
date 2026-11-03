@@ -19,6 +19,17 @@
 2. `config/private/build-defaults.json`。只存在于内部仓库，开源导出不包含。
 3. 以上都没有时关闭。
 
+## 运行期遥测总开关
+
+构建期配置之外，`ZCODE_TELEMETRY_ENABLED` 提供运行期单向收紧：显式设置为
+`0`/`false`/`off`/`disabled`（与 CLI `ZCODE_MODEL_TELEMETRY_ENABLED` 的取值口径一致）
+时，`ZCODE_ARMS_RUM_ENDPOINT` 与 `ZCODE_TELEMETRY_REPORT_ENDPOINT` 在
+`packages/shared/src/env.ts` 求值时一律按空处理，等价于构建期未注入：ARMS SDK 以
+`enable: false` 初始化，事件在发送前直接返回；CLI 侧 `prepareModelTelemetryEnv`
+同样不创建 OTLP Owner。未设置或为其他值时不改变构建期结果；该开关只做收紧，
+不能在构建期关闭后凭运行期变量启用上报。自动更新不受该开关影响，仍由
+`ZCODE_AUTO_UPDATE` 构建期配置决定。
+
 ## 所有者与数据流
 
 ```
