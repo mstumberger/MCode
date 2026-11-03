@@ -897,6 +897,10 @@ exceptions:
       - packages/ui/src/lib/providerFamilyConnectionTransition.ts
       - packages/ui/src/prompt-editor/useComposerToolbarFit.ts
     reason: Composer model, provider and toolbar files reached staging without the MR architecture gate running; adopting the packages/ui composer toolbar needs a separate module boundary refactor.
+  - id: narrow-viewport-drawer-unmanaged-file
+    rule: unmanaged-new-file
+    paths: [ packages/ui/src/hooks/useIsNarrowViewport.ts ]
+    reason: 窄视口侧栏抽屉（docs/ui/narrow-viewport-layout.md）新增的单一视口判定 hook，是断点媒体查询常量与 SSR 安全同步读取的唯一 owner，被 WorkspaceShellLayout 与 useAppPanels 引用；接管整个 packages/ui/src/hooks 需要单独的模块边界梳理，不在本功能移植范围内。
   - id: provider-endpoint-routing-unmanaged-edit
     rule: unmanaged-new-file
     paths:

@@ -47,6 +47,7 @@ import { DesktopTopOverlay } from "@/DesktopTopOverlay.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
 import { WorkspacePluginPreview } from "@/workspace-plugin-preview/index.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
+import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport.js";
 import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
 import { ScopedErrorBoundary } from "@/ErrorBoundary.js";
 
@@ -588,6 +589,12 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
     activeTaskTitle?.trim() || intl.formatMessage({ id: "taskList.untitled" });
   // 完整视图保留左侧任务列表与左上角按钮组，侧栏显隐只由用户开关决定。
   const isSidebarPanelVisible = isSidebarVisible;
+  // 窄视口（手机竖屏/窄窗口）：侧栏从「占位定宽栏」改为叠加抽屉，对话区独占整屏宽度。
+  // 桌面与宽 Web 布局完全不变，判定只影响本组件的分栏方式。
+  const isNarrowViewport = useIsNarrowViewport();
+  // Web 远控 shell 的窄视口已由 WebRemoteControlMobileShell 的 Home/Chat 页与顶部导航承接，
+  // 抽屉只接管非远控形态（自托管 web 手机访问、桌面窄窗口），避免两套移动布局互相叠加。
+  const isSidebarDrawerMode = isNarrowViewport && !isWebRemoteControlShell;
   const {
     panelRef: terminalPanelRef,
     panelElementRef: terminalPanelElementRef,
@@ -630,6 +637,29 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
       workspaceKey,
     };
   }, [handleToggleSidebar, handleToggleSidePane, isSidebarVisible, isSidePaneOpen, workspaceKey]);
+
+  // 窄视口抽屉的让位时机：窗口刚变窄，或用户在抽屉里点开了另一个会话。
+  // 桌面布局下两个信号都不触发，不会覆盖用户手动展开的侧栏。
+  const previousSidebarDrawerModeRef = useRef(isSidebarDrawerMode);
+  const previousActiveTaskIdRef = useRef(activeTaskId);
+  useEffect(() => {
+    const becameNarrow = isSidebarDrawerMode && !previousSidebarDrawerModeRef.current;
+    const activeTaskChanged = previousActiveTaskIdRef.current !== activeTaskId;
+    previousSidebarDrawerModeRef.current = isSidebarDrawerMode;
+    previousActiveTaskIdRef.current = activeTaskId;
+    if (!isSidebarDrawerMode || !isSidebarVisible) {
+      return;
+    }
+    if (!becameNarrow && !activeTaskChanged) {
+      return;
+    }
+    logger.info("[WorkspaceShellLayout] 窄视口自动收起侧栏抽屉", {
+      becameNarrow,
+      activeTaskChanged,
+      workspaceKey,
+    });
+    handleToggleSidebar();
+  }, [activeTaskId, handleToggleSidebar, isSidebarDrawerMode, isSidebarVisible, workspaceKey]);
 
   useEffect(() => {
     if (workspaceMainView !== "chat") {
@@ -2259,27 +2289,49 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
           isWebRemoteControlShell && "max-md:flex-col",
         )}
       >
+        {isSidebarDrawerMode && isSidebarPanelVisible ? (
+          // 抽屉背板：点空白处收起，恢复对话区可点。层级要压过 composer 等 z-20 内容层，
+          // 否则背板只在页面边缘可点，手机上几乎点不到。
+          <div
+            data-workspace-sidebar-backdrop="true"
+            aria-hidden="true"
+            className="absolute inset-0 z-30 bg-black/40"
+            onClick={handleToggleSidebar}
+          />
+        ) : null}
         <div
           ref={workspaceSidebarPanelElementRef}
           data-panel=""
           data-workspace-sidebar-panel="true"
           id="sidebar"
           className={cn(
-            "w-[var(--workspace-sidebar-panel-width)] max-w-[50%] flex-none overflow-hidden duration-200 ease-out transition-[width,opacity] data-[workspace-sidebar-resizing=true]:transition-opacity",
-            // 修复原因：拖动侧栏宽度时如果继续过渡 width，会让指针移动和实际宽度之间产生滞后。
-            // 拖拽 active 通过 DOM 标记切 transition，避免 pointerdown/up 为了切 class 重渲染整棵 workspace。
-            isWebRemoteControlShell &&
-              cn(
-                // Bugfix: Web 远程控制在手机浏览器里仍复用桌面横向 shell，
-                // 264px 侧栏 + 320px 内容区会直接超过视口宽度，导致页面只能横向滚动。
-                // 这里只在远控模式的小屏断点把主布局改为上下堆叠，桌面端仍保持原来的分栏。
-                // 交互修复：远控移动端改为拖动 WorkspaceHeader 下边框的按钮控制顶部高度，
-                // 这里用 CSS 变量同步高度，避免拖动时卸载导航内容或打断任务列表状态。
-                renderWebRemoteNavigationPanel
-                  ? "max-md:!h-[var(--web-remote-navigation-height)] max-md:!min-h-0 max-md:!w-full max-md:!max-w-none max-md:!flex-none max-md:!basis-auto max-md:border-b max-md:border-border max-md:bg-sidebar"
-                  : "max-md:!h-0 max-md:!min-h-0 max-md:!w-full max-md:!max-w-none max-md:!flex-none max-md:!basis-0 max-md:!border-b-0",
-              ),
-            isSidebarPanelVisible ? "opacity-100" : "pointer-events-none opacity-0",
+            isSidebarDrawerMode
+              ? // 窄视口：抽屉叠加在对话区之上，不参与分栏；宽度取视口与 320px 的较小值，
+                // 收起点用 -translate-x-full，配合父层 overflow-hidden 不产生横向滚动。
+                "absolute inset-y-0 left-0 z-40 w-[min(320px,86vw)] bg-background shadow-xl duration-200 ease-out transition-transform"
+              : cn(
+                  "w-[var(--workspace-sidebar-panel-width)] max-w-[50%] flex-none overflow-hidden duration-200 ease-out transition-[width,opacity] data-[workspace-sidebar-resizing=true]:transition-opacity",
+                  // 修复原因：拖动侧栏宽度时如果继续过渡 width，会让指针移动和实际宽度之间产生滞后。
+                  // 拖拽 active 通过 DOM 标记切 transition，避免 pointerdown/up 为了切 class 重渲染整棵 workspace。
+                  isWebRemoteControlShell &&
+                    cn(
+                      // Bugfix: Web 远程控制在手机浏览器里仍复用桌面横向 shell，
+                      // 264px 侧栏 + 320px 内容区会直接超过视口宽度，导致页面只能横向滚动。
+                      // 这里只在远控模式的小屏断点把主布局改为上下堆叠，桌面端仍保持原来的分栏。
+                      // 交互修复：远控移动端改为拖动 WorkspaceHeader 下边框的按钮控制顶部高度，
+                      // 这里用 CSS 变量同步高度，避免拖动时卸载导航内容或打断任务列表状态。
+                      renderWebRemoteNavigationPanel
+                        ? "max-md:!h-[var(--web-remote-navigation-height)] max-md:!min-h-0 max-md:!w-full max-md:!max-w-none max-md:!flex-none max-md:!basis-auto max-md:border-b max-md:border-border max-md:bg-sidebar"
+                        : "max-md:!h-0 max-md:!min-h-0 max-md:!w-full max-md:!max-w-none max-md:!flex-none max-md:!basis-0 max-md:!border-b-0",
+                    ),
+                ),
+            isSidebarPanelVisible
+              ? isSidebarDrawerMode
+                ? "translate-x-0"
+                : "opacity-100"
+              : isSidebarDrawerMode
+                ? "pointer-events-none -translate-x-full"
+                : "pointer-events-none opacity-0",
           )}
         >
           {/* Bugfix: 折叠远控顶部导航时保持组件挂载，避免展开后整块 sidebar 重新加载。 */}
@@ -2310,7 +2362,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
           </aside>
         </div>
 
-        {isSidebarPanelVisible && renderWebRemoteNavigationPanel ? (
+        {isSidebarPanelVisible && renderWebRemoteNavigationPanel && !isSidebarDrawerMode ? (
           <div
             role="separator"
             tabIndex={0}
@@ -2334,7 +2386,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
             )}
           />
         ) : null}
-        {isSidebarPanelVisible && renderWebRemoteNavigationPanel ? (
+        {isSidebarPanelVisible && renderWebRemoteNavigationPanel && !isSidebarDrawerMode ? (
           // 原因：侧栏 overflow 裁掉横线末端；延伸装饰放在共同布局容器，不改变拖拽命中区。
           <span
             aria-hidden="true"
@@ -2350,7 +2402,10 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
           data-panel=""
           id="content"
           className={cn(
-            "flex min-w-[320px] flex-1 flex-col",
+            // 窄视口抽屉化后侧栏不再占位，对话区放开 320px 最小宽限制，独占整屏。
+            isSidebarDrawerMode
+              ? "flex min-w-0 flex-1 flex-col"
+              : "flex min-w-[320px] flex-1 flex-col",
             hasDesktopPanelInset ? (isWindowsDesktop ? "pr-1.5 pb-1.5" : "pr-1 pb-1") : "p-0",
             isWebRemoteControlShell &&
               "max-md:!w-full max-md:!min-w-0 max-md:!flex-1 max-md:!basis-0",
@@ -2744,6 +2799,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
             windowsWindowControlsRightPaddingPx={windowsWindowControlsRightPaddingPx}
             isWindowsDesktop={isWindowsDesktop}
             isDesktop={isDesktop}
+            isNarrowViewport={isSidebarDrawerMode}
             isSidebarVisible={isSidebarVisible}
             updateReadyVersion={updateReadyVersion}
             updateState={updateState}

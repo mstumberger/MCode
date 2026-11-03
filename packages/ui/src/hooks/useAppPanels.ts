@@ -95,6 +95,7 @@ import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 import { clearSelectionSideChat } from "@/lib/selectionSideChatRuntime.js";
 import { clearConversationSelectionReferenceScope } from "@/lib/conversationSelectionReference.js";
 import { subscribeTaskLifecycle } from "@/lib/taskLifecycleEvents.js";
+import { readIsNarrowViewport } from "@/hooks/useIsNarrowViewport.js";
 
 export interface BrowserNavigationRequest {
   id: string;
@@ -148,6 +149,11 @@ export function useAppPanels(options: {
   sidePaneOwnerId: string | null;
   isDesktop?: boolean;
   /**
+   * Web 远控（手机远控桌面）形态：窄视口手机布局由 WebRemoteControlMobileShell 承接，
+   * 侧栏显隐语义仍按远控原有的初始展开，不为抽屉让路（见 isSidebarVisible 初始值）。
+   */
+  isWebRemoteControl?: boolean;
+  /**
    * 展示语义：视图当前是否呈现给用户（设置页覆盖时为 false）。
    * 本 hook 刻意不消费它——Browser View 事件是 main 侧权威转发，订阅不能受可见性影响，
    * 详见下方订阅 effect 的时序约束注释。
@@ -178,6 +184,7 @@ export function useAppPanels(options: {
     activeTaskId,
     sidePaneOwnerId,
     isDesktop,
+    isWebRemoteControl,
     supportsEmbeddedBrowser: explicitSupportsEmbeddedBrowser,
     defaultWhiteboardNamePrefix,
     platform,
@@ -213,7 +220,12 @@ export function useAppPanels(options: {
   // 交互说明：侧栏显隐按钮放在 App 外层，而不是 Sidebar 内部。
   // 这样即使侧栏被隐藏，入口也仍然留在左上角，不会出现"收起后没有地方再展开"的问题；
   // 同时这里统一处理 macOS 红绿灯安全区，避免按钮和系统窗口控件重叠。
-  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+  // 窄视口（手机）首帧不铺侧栏：侧栏定宽 264px，手机上会把对话区挤出屏幕。
+  // 手机上的侧栏由 WorkspaceShellLayout 以抽屉形式叠加呈现，默认收起、点图标展开。
+  // Web 远控除外：其手机布局不渲染定宽侧栏，初始展开保证 Header 不为不存在的浮层预留留白。
+  const [isSidebarVisible, setIsSidebarVisible] = useState(
+    () => isWebRemoteControl || !readIsNarrowViewport(),
+  );
   const [browserNavigationRequest, setBrowserNavigationRequest] =
     useState<BrowserNavigationRequest | null>(null);
   const [allRecentClosedSidePaneTabs, setAllRecentClosedSidePaneTabs] = useState<
