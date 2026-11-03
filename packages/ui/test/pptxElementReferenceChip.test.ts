@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
@@ -28,7 +28,11 @@ function makeReference(): PptxElementReference {
   };
 }
 
-afterEach(() => document.body.replaceChildren());
+// 修复原因：全局兜底 cleanup 会在本文件 afterEach 之后再卸载组件；直接清空 body
+// 会让 React 卸载路径找不到节点（NotFoundError）。改为先正常 unmount。
+afterEach(() => {
+  cleanup();
+});
 
 describe("PptxElementReferenceChip", () => {
   it("opens a concrete reference while keeping delete as an isolated sibling action", async () => {

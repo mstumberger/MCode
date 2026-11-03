@@ -29,6 +29,19 @@ process.env.ZCODE_TEST_CLIENT_CONFIG_PLATFORM = process.env.ZCODE_TEST_CLIENT_CO
 // 这里在测试入口统一清理，保证单测默认只受各自显式设置的 HOME / setDataBaseDir 控制。
 delete process.env.ZCODE_DATA_BASE_DIR;
 
+// Bugfix：仓库未启用 vitest globals，@testing-library/react 的自动 cleanup 不会注册；
+// 漏写 afterEach(cleanup) 的文件会把 radix FocusScope 等带定时器的组件留在挂载状态。
+// forks 池复用进程时，遗留定时器会在后续文件的 jsdom teardown 之后触发，
+// 以 "parameter 1 is not of type 'Event'" / "window is not defined" 未捕获异常
+// 让整轮全绿测试判负（CI 实测两次）。这里注册全局兜底 cleanup：只在 jsdom 环境
+// 懒加载 RTL（Node 环境测试不付出 react-dom 导入成本），显式 cleanup 幂等。
+afterEach(async () => {
+  if (typeof document !== "undefined") {
+    const { cleanup } = await import("@testing-library/react");
+    cleanup();
+  }
+});
+
 afterEach(() => {
   delete process.env.ZCODE_DATA_BASE_DIR;
 });
