@@ -344,9 +344,9 @@ describe("resolveDefaultZCodeAgentCommand", () => {
 
     const first = manager.getClient({ workspacePath });
     const second = manager.getClient({ workspacePath });
-    await Promise.resolve();
-
-    expect(commandResolver).toHaveBeenCalledTimes(1);
+    // 修复依据：上游 v3.17.2 起 getClient 先 await 异步 bind（useSharedTaskRuntime 协商），
+    // 单个 microtask 不再保证 commandResolver 已被调用，改用 waitFor 等到解析发生。
+    await vi.waitFor(() => expect(commandResolver).toHaveBeenCalledTimes(1));
 
     command.resolve({
       command: process.execPath,
@@ -378,8 +378,9 @@ describe("resolveDefaultZCodeAgentCommand", () => {
 
     const first = manager.getClient({ workspacePath });
     const second = manager.getClient({ workspacePath });
-    await Promise.resolve();
-    expect(commandResolver).toHaveBeenCalledTimes(1);
+    // 修复依据：上游 v3.17.2 起 getClient 先 await 异步 bind，单个 microtask 不再保证
+    // commandResolver 已被调用，改用 waitFor 等到解析发生。
+    await vi.waitFor(() => expect(commandResolver).toHaveBeenCalledTimes(1));
     expect(gate.isRecovering()).toBe(true);
 
     gate.commitRecovery(recoveryEpoch);
@@ -396,13 +397,17 @@ describe("resolveDefaultZCodeAgentCommand", () => {
     const command = createDeferred<ZCodeAgentCommand>();
     const gate = new CuaAgentAdmissionGate();
     const recoveryEpoch = gate.beginRecovery();
+    const commandResolver = vi.fn(() => command.promise);
     const manager = new ZCodeAgentProcessManager({
-      commandResolver: () => command.promise,
+      commandResolver,
       waitForSpawnAdmission: (context) => gate.waitForSpawnAdmission(context),
     });
 
     const starting = manager.getClient({ workspacePath });
-    await Promise.resolve();
+    // 修复依据：上游 v3.17.2 起 getClient 先 await 异步 bind；必须等到 commandResolver
+    // 真正被调用（start 已登记 admission controller）后再 dispose，否则 dispose 发生在
+    // start 登记前，旧代际照常完成 spawn，用例前提（pending start 被 dispose 取消）不成立。
+    await vi.waitFor(() => expect(commandResolver).toHaveBeenCalledTimes(1));
     command.resolve({
       command: process.execPath,
       args: ["-e", "setInterval(() => {}, 1000);"],

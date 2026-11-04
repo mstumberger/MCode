@@ -44,7 +44,6 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
-    if (process.env.FAKE_DEBUG) fs.appendFileSync("/tmp/fake-agent-debug.log", (msg.method ?? "?") + "\\n");
     if (logPath && msg.method) fs.appendFileSync(logPath, line + "\\n");
     if (msg.method === "session/list" && msg.id !== undefined) {
       const sessions = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
@@ -318,6 +317,8 @@ process.stdin.on("data", (chunk) => {
         },
       });
     }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 应答空能力集（全字段可选）即可。
     if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
       send({ id: msg.id, result: {} });
       continue;
@@ -330,13 +331,14 @@ process.stdin.on("data", (chunk) => {
         },
       });
     }
-    // 临时诊断：未识别的请求快速返回 method-not-found，避免 30s 超时掩盖真实卡点。
-    if (msg.id !== undefined && ![
+    // 未识别请求按真实 CLI 语义快速返回 method-not-found，避免 30s 超时掩盖协议缺口。
+    const HANDLED_METHODS = new Set([
       "session/list", "session/debug", "v4/conversation/backgroundBashOutput", "v4/conversation/offPeakControl",
       "v4/conversation/subscribe", "v4/conversation/unsubscribe", "v4/connection/flow", "v4/attachment/begin",
       "v4/attachment/chunk", "v4/attachment/commit", "v4/attachment/abort", "v4/attachment/previewSource",
-      "v4/conversation/resync", "v4/command", "v4/commands/query", "runtime/capabilities",
-    ].includes(msg.method)) {
+      "v4/conversation/resync", "v4/command", "v4/commands/query",
+    ]);
+    if (msg.id !== undefined && msg.method && !HANDLED_METHODS.has(msg.method)) {
       send({ id: msg.id, error: { code: -32601, message: "Method not found: " + msg.method } });
     }
   }
@@ -931,7 +933,10 @@ describe("zcodeAgentService v4 conversation channel", () => {
 
       // Worker 已经持有进程级 Registry；Host 读取 Registry View 只用于启动门禁，
       // 不能把完整 Registry 下发成另一份执行事实源。
+      // 修复依据：上游 v3.17.2 起 client 启动会先发 runtime/capabilities 协商
+      // （sessionDirectorySource），Registry View 仍只作门禁，不下发 Registry。
       expect(readRequests(logPath).map((entry) => entry.method)).toEqual([
+        "runtime/capabilities",
         "v4/conversation/subscribe",
       ]);
       expect(
@@ -1879,6 +1884,9 @@ describe("zcodeAgentService v4 conversation channel", () => {
         type: "editUserQuery",
         baseRevision: 12,
         baseLogEpoch: "epoch-mobile",
+        // 修复依据：上游 v3.17.2 起 Host 在信封顶层按可信连接 clientMode
+        // 注入 inputOrigin（web-remote-replayable → mobile）。
+        inputOrigin: "mobile",
         payload: {
           target: { rowId: 18, entityId: "msg-mobile-user" },
           newText: "mobile edited query",

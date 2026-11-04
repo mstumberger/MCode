@@ -4,6 +4,11 @@ import { zcodeProtocolMethods } from "@zcode/shared";
 describe("ZCodeAgentService workspace Hook Trust", () => {
   it("没有 task/provider 时只启动 read-only Agent 并发送 workspace grant", async () => {
     const request = vi.fn(async (method: string) => {
+      // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商；
+      // mock 需按空能力集应答（全字段可选）。
+      if (method === zcodeProtocolMethods.runtimeCapabilities) {
+        return {};
+      }
       if (method === zcodeProtocolMethods.workspaceHookTrustGrant) {
         return { accepted: true };
       }
@@ -20,6 +25,11 @@ describe("ZCodeAgentService workspace Hook Trust", () => {
     vi.doMock("../src/zcode-agent/zcodeAgentProcessManager.js", () => ({
       ZCodeAgentProcessManager: class {
         getClient = getClient;
+        // 修复依据：上游 v3.17.2 起只读 client 启动会调用 isSharedRuntime 判定
+        // sessionWorkspaceRouting 协商失败是否致命；mock 需补齐该方法。
+        isSharedRuntime() {
+          return false;
+        }
         onRuntimeLifecycle() {
           return { dispose() {} };
         }

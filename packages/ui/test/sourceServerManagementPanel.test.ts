@@ -219,15 +219,22 @@ describe("SourceServerManagementPanel", () => {
       onDidChangeState: new Emitter().event,
     } as never;
     const first = render(createElement(SourceServerManagementPanel, { management }));
+    await screen.findByText("Reinstalled server");
+    // 修复依据：上游 v3.17.2 RDUX-13 更新横幅（含「稍后」按钮）在设备展开区内。
+    expandDevice(first.container);
     fireEvent.click(await screen.findByRole("button", { name: "updateDialog.later" }));
     expect(screen.queryByText("settings.source.updateAvailableVersion")).toBeNull();
     first.unmount();
     const second = render(createElement(SourceServerManagementPanel, { management }));
     await screen.findByText("Reinstalled server");
+    // 展开后断言才有效：稍后状态未持久失效时，展开区会重新渲染可更新横幅。
+    expandDevice(second.container);
     expect(screen.queryByText("settings.source.updateAvailableVersion")).toBeNull();
     second.unmount();
     snapshot.states[0]!.availableVersion = "defer-test-2";
-    render(createElement(SourceServerManagementPanel, { management }));
+    const third = render(createElement(SourceServerManagementPanel, { management }));
+    await screen.findByText("Reinstalled server");
+    expandDevice(third.container);
     expect(await screen.findByRole("button", { name: "updateDialog.later" })).toBeTruthy();
   });
 
@@ -498,11 +505,16 @@ describe("SourceServerManagementPanel", () => {
     } as never;
     // 失败设备的最近日志默认展开；用户手动收起后以用户选择为准。
     const first = render(createElement(SourceServerManagementPanel, { management }));
+    await screen.findByText("Reinstalled server");
+    // 修复依据：上游 v3.17.2 RDUX-13 最近日志页脚在设备展开区内。
+    expandDevice(first.container);
     await waitFor(() => expect(screen.getByText("Connection refused")).toBeTruthy());
     fireEvent.click(screen.getByText("settings.source.recentLog"));
     expect(screen.queryByText("Connection refused")).toBeNull();
     first.unmount();
-    render(createElement(SourceServerManagementPanel, { management }));
+    const second = render(createElement(SourceServerManagementPanel, { management }));
+    await screen.findByText("Reinstalled server");
+    expandDevice(second.container);
     await waitFor(() => expect(screen.getByText("Connection refused")).toBeTruthy());
     expect(getRecentOperationLogs).toHaveBeenCalledWith("preferred");
   });
@@ -560,7 +572,7 @@ describe("SourceServerManagementPanel", () => {
     },
   );
 
-  it("已卸载设备的多条待确认线路无需展开即可分别操作，首选线路优先", async () => {
+  it("已卸载设备的多条待确认线路：首选在行首、其余展开后可分别操作", async () => {
     const snapshot = identityPendingSnapshot("uninstalled", "alternative");
     snapshot.states = snapshot.states.map((state) => ({
       ...state,
@@ -568,7 +580,7 @@ describe("SourceServerManagementPanel", () => {
       pendingSourceServerId: "new-source",
     }));
     const confirmIdentityChange = vi.fn(async () => snapshot);
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: vi.fn(async () => snapshot),
@@ -578,6 +590,8 @@ describe("SourceServerManagementPanel", () => {
       }),
     );
     await screen.findByText("Reinstalled server");
+    // 修复依据：上游 v3.17.2 RDUX-13 行首只渲染首选待确认线路，其余线路在设备展开区内。
+    expandDevice(container);
     const buttons = screen.getAllByRole("button", {
       name: "settings.source.identityChangeConfirm",
     });
@@ -638,7 +652,8 @@ describe("SourceServerManagementPanel", () => {
       }),
     );
 
-    expect(await screen.findByText("settings.source.connectionPreferences")).toBeTruthy();
+    // 修复依据：上游 v3.17.2 连接偏好区标题 key 为 settings.source.preferences（不再是 connectionPreferences）。
+    expect(await screen.findByText("settings.source.preferences")).toBeTruthy();
 
     const toggle = screen.getByRole("switch", {
       name: "settings.source.startupAutoReconnect",
@@ -694,7 +709,8 @@ describe("SourceServerManagementPanel", () => {
         onUpdateSettings: save,
       }),
     );
-    const toggle = screen.getByRole("switch");
+    // 修复依据：上游 v3.17.2 新增「隐藏项目设备名」开关后偏好区有多个 switch，需按 aria-label 定位。
+    const toggle = screen.getByRole("switch", { name: "settings.source.startupAutoReconnect" });
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(toggle.hasAttribute("disabled")).toBe(true);
@@ -715,7 +731,7 @@ describe("SourceServerManagementPanel", () => {
           complete = resolve;
         }),
     );
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: async () => snapshot,
@@ -724,15 +740,22 @@ describe("SourceServerManagementPanel", () => {
         onDisconnectSource: disconnect,
       }),
     );
-    const button = await screen.findByRole("button", { name: "remote.action.disconnect" });
-    // 任务继续提示只在断开按钮上说明，不再常驻占一行。
-    expect(button.getAttribute("title")).toBe("settings.source.disconnectHint");
-    expect(screen.queryByText("settings.source.disconnectHint")).toBeNull();
-    fireEvent.click(button);
-    fireEvent.click(button);
+    await screen.findByText("Reinstalled server");
+    // 修复依据：上游 v3.17.2 RDUX-13 断开从行内按钮移入「更多」菜单；任务继续提示改为菜单项内副标题。
+    openDeviceMenu(container);
+    const item = await screen.findByRole("menuitem", { name: /remote\.action\.disconnect/u });
+    expect(item.textContent).toContain("settings.source.disconnectHint");
+    fireEvent.click(item);
     expect(disconnect).toHaveBeenCalledExactlyOnceWith("old-source");
-    expect(button.getAttribute("aria-busy")).toBe("true");
     expect(confirmDialog).not.toHaveBeenCalled();
+    // 断开进行中重新打开菜单：菜单项按 Source 互斥禁用，第二次点击不再触发断开。
+    openDeviceMenu(container);
+    await waitFor(() => {
+      const again = screen.getByRole("menuitem", { name: /remote\.action\.disconnect/u });
+      expect(again.hasAttribute("data-disabled")).toBe(true);
+    });
+    fireEvent.click(screen.getByRole("menuitem", { name: /remote\.action\.disconnect/u }));
+    expect(disconnect).toHaveBeenCalledOnce();
     await act(async () => complete());
   });
 
@@ -815,7 +838,7 @@ describe("SourceServerManagementPanel", () => {
       updateAvailability: "required",
       updatedAt: 2,
     };
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: async () => snapshot,
@@ -824,6 +847,8 @@ describe("SourceServerManagementPanel", () => {
       }),
     );
     await screen.findByText("Reinstalled server");
+    // 修复依据：上游 v3.17.2 RDUX-13 连接错误与更新失败横幅都在设备展开区内。
+    expandDevice(container);
     expect(screen.getAllByText("remote.error.hostUnreachable")).toHaveLength(1);
   });
 
@@ -969,7 +994,7 @@ describe("SourceServerManagementPanel", () => {
       abandonedPathCount: 0,
       migrationCounts: [],
     };
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: vi.fn(async () => snapshot),
@@ -977,6 +1002,9 @@ describe("SourceServerManagementPanel", () => {
         } as never,
       }),
     );
+    await screen.findByText("Dev");
+    // 修复依据：上游 v3.17.2 RDUX-13 分类后的错误文案渲染在设备展开区内。
+    expandDevice(container);
     expect(await screen.findByText("remote.error.unknown")).toBeTruthy();
     expect(screen.queryByText("raw host detail")).toBeNull();
   });
@@ -1013,7 +1041,7 @@ describe("SourceServerManagementPanel", () => {
       abandonedPathCount: 0,
       migrationCounts: [],
     };
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: vi.fn(async () => snapshot),
@@ -1021,6 +1049,9 @@ describe("SourceServerManagementPanel", () => {
         } as never,
       }),
     );
+    await screen.findByText("Dev");
+    // 修复依据：上游 v3.17.2 RDUX-13 恢复预算耗尽的错误文案渲染在设备展开区内。
+    expandDevice(container);
 
     expect(await screen.findByText(/remote\.error\.recoveryBudgetExhausted:3\/3/u)).toBeTruthy();
   });
@@ -1056,7 +1087,7 @@ describe("SourceServerManagementPanel", () => {
       abandonedPathCount: 0,
       migrationCounts: [],
     };
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: vi.fn(async () => snapshot),
@@ -1064,16 +1095,18 @@ describe("SourceServerManagementPanel", () => {
         } as never,
       }),
     );
+    await screen.findByText("Dev");
+    // 修复依据：上游 v3.17.2 RDUX-13 versionDetails 渲染在设备展开区的更新横幅内；
+    // 编辑连接移入「更多」菜单（menuitem），行内不再有编辑按钮。
+    expandDevice(container);
 
     expect(await screen.findByText("settings.source.versionDetails")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "remote.action.connect" })).toBeNull();
     screen.getByRole("button", {
       name: "remote.action.update-server",
     });
-    screen.getByRole("button", {
-      name: "settings.source.editConnection",
-    });
-    screen.getByRole("button", { name: "common.more" });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "common.more" }));
+    expect(await screen.findByRole("menuitem", { name: "settings.source.editConnection" })).toBeTruthy();
   });
 
   it("更新中覆盖旧的必须更新文案并展示明确进度", async () => {
@@ -1120,7 +1153,7 @@ describe("SourceServerManagementPanel", () => {
     operationLogEmitter.event((entry) => {
       operationLogs = [{ ...entry, profileId: "17ef20b3-622d-4a53-98c1-0cdff29f3e6d" }];
     });
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: vi.fn(async () => snapshot),
@@ -1130,6 +1163,9 @@ describe("SourceServerManagementPanel", () => {
         } as never,
       }),
     );
+    await screen.findByText("Dev");
+    // 修复依据：上游 v3.17.2 RDUX-13 更新中横幅与进度渲染在设备展开区内。
+    expandDevice(container);
 
     expect(await screen.findByText("settings.source.updateInProgress")).toBeTruthy();
     expect(screen.queryByText("settings.source.updateRequired")).toBeNull();
@@ -1191,14 +1227,18 @@ describe("SourceServerManagementPanel", () => {
       migrationCounts: [],
     };
     const getSnapshot = vi.fn(async () => snapshot);
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: { getSnapshot, onDidChangeState: stateEmitter.event } as never,
       }),
     );
     expect(await screen.findByText("Dev")).toBeTruthy();
     expect(screen.queryByDisplayValue("Dev")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "settings.source.editConnection" }));
+    // 修复依据：上游 v3.17.2 RDUX-13 编辑连接移入「更多」菜单，经 menuitem 打开对话框。
+    openDeviceMenu(container);
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "settings.source.editConnection" }),
+    );
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(screen.getByDisplayValue("Dev")).toBeTruthy();
   });
@@ -1275,7 +1315,7 @@ describe("SourceServerManagementPanel", () => {
       abandonedPathCount: 0,
       migrationCounts: [],
     };
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: vi.fn(async () => snapshot),
@@ -1286,15 +1326,16 @@ describe("SourceServerManagementPanel", () => {
     );
 
     expect(await screen.findByText("Build server")).toBeTruthy();
-    expect(document.querySelector('[data-remote-connection-status="offline"]')).toBeTruthy();
-    expect(document.querySelector('[data-remote-connection-kind="ssh"]')).toBeTruthy();
+    // 折叠行首只显示首选连接地址；备用连接地址不可见。
     expect(screen.getByText("dev@primary.example.com:22")).toBeTruthy();
     expect(screen.queryByText("dev@backup.example.com:22")).toBeNull();
-    expect(
-      screen.getAllByRole("button", {
-        name: "settings.source.editConnection",
-      }),
-    ).toHaveLength(1);
+    // 修复依据：上游 v3.17.2 RDUX-13 编辑连接移入「更多」菜单，行内不再有编辑按钮。
+    expect(screen.queryByRole("button", { name: "settings.source.editConnection" })).toBeNull();
+
+    // 类型标签与状态标签在展开区的连接行内。
+    expandDevice(container);
+    expect(document.querySelector('[data-remote-connection-status="offline"]')).toBeTruthy();
+    expect(document.querySelector('[data-remote-connection-kind="ssh"]')).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -1356,7 +1397,8 @@ describe("SourceServerManagementPanel", () => {
     expect(screen.getByText("linux-arm64-dev")).toBeTruthy();
     expect(container.querySelector('[data-remote-connection-status="offline"]')).toBeTruthy();
     expect(screen.getByText("dev@localhost:2223")).toBeTruthy();
-    const preferences = screen.getByText("settings.source.connectionPreferences");
+    // 修复依据：上游 v3.17.2 连接偏好区标题 key 为 settings.source.preferences。
+    const preferences = screen.getByText("settings.source.preferences");
     expect(
       unfinished!.compareDocumentPosition(preferences) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -1471,7 +1513,7 @@ describe("SourceServerManagementPanel", () => {
       ],
     };
     const getMigrationReport = vi.fn(async () => ({ rows: [] }));
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: vi.fn(async () => snapshot),
@@ -1480,6 +1522,9 @@ describe("SourceServerManagementPanel", () => {
         } as never,
       }),
     );
+    await screen.findByText("Build server");
+    // 修复依据：上游 v3.17.2 RDUX-13 连接历史提醒渲染在设备展开区内。
+    expandDevice(container);
 
     expect(await screen.findByText("settings.source.connectionHistoryNeedsAttention")).toBeTruthy();
     expect(screen.queryByText(/产品边界/u)).toBeNull();
@@ -1588,7 +1633,7 @@ describe("SourceServerManagementPanel", () => {
       migrationCounts: [],
     };
     const onDisconnectSource = vi.fn(async () => undefined);
-    render(
+    const { container } = render(
       createElement(SourceServerManagementPanel, {
         management: {
           getSnapshot: vi.fn(async () => snapshot),
@@ -1599,7 +1644,12 @@ describe("SourceServerManagementPanel", () => {
     );
 
     expect(await screen.findByText("Build server")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "remote.action.disconnect" }));
+    // 修复依据：上游 v3.17.2 RDUX-13 断开移入「更多」菜单，仍经注入的 remote controller adapter 执行。
+    openDeviceMenu(container);
+    // 菜单项名包含断开提示副标题，用正则匹配可访问名。
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /remote\.action\.disconnect/u }),
+    );
     await waitFor(() => expect(onDisconnectSource).toHaveBeenCalledWith("source-a"));
   });
 
@@ -1692,8 +1742,12 @@ it("管理入口在快照到达后定位设备卡并消费一次意图，普通�
   );
   expect(consumed).not.toHaveBeenCalled();
   await act(async () => pending.resolve(snapshot));
+  // 修复依据：上游 v3.17.2 RDUX-13 焦点落在设备行首切换按钮（data-source-server-toggle）上，
+  // 按钮本身不携带卡片 id，改为沿 DOM 向上定位所属设备卡。
   await waitFor(() =>
-    expect(document.activeElement?.getAttribute("data-source-server-card")).toBe("old-source"),
+    expect(
+      document.activeElement?.closest("[data-source-server-card]")?.getAttribute("data-source-server-card"),
+    ).toBe("old-source"),
   );
   expect(consumed).toHaveBeenCalledOnce();
   expect(scroll).toHaveBeenCalledWith({ block: "center" });
@@ -1701,7 +1755,7 @@ it("管理入口在快照到达后定位设备卡并消费一次意图，普通�
   render(createElement(SourceServerManagementPanel, { management }));
   await screen.findByText("Reinstalled server");
   expect(scroll).toHaveBeenCalledOnce();
-  expect(document.activeElement?.getAttribute("data-source-server-card")).toBeNull();
+  expect(document.activeElement?.closest("[data-source-server-card]")).toBeNull();
 });
 
 it("设备操作按 Source 防重，无关设备与只读展开可继续，反序快照不回滚", async () => {
@@ -1751,6 +1805,9 @@ it("设备操作按 Source 防重，无关设备与只读展开可继续，反�
   );
   await screen.findByText("Second");
   const card = (id: string) => container.querySelector(`[data-source-server-card="${id}"]`)!;
+  // 修复依据：上游 v3.17.2 RDUX-13 更新横幅（update-server 按钮）与连接详情在设备展开区内。
+  expandDevice(container, "old-source");
+  expandDevice(container, "second");
   const action = (id: string) =>
     Array.from(card(id).querySelectorAll("button")).find(
       (button) => button.textContent === "remote.action.update-server",
@@ -1758,11 +1815,12 @@ it("设备操作按 Source 防重，无关设备与只读展开可继续，反�
   fireEvent.click(action("old-source"));
   fireEvent.click(action("old-source"));
   expect(updateSource).toHaveBeenCalledTimes(1);
-  expect(
-    card("second")
-      .querySelector('button[aria-label="settings.source.editConnection"]')!
-      .matches(":disabled"),
-  ).toBe(false);
+  // 修复依据：上游 v3.17.2 RDUX-13 编辑连接移入「更多」菜单；无关设备（second）的菜单项不受 old-source busy 影响。
+  openDeviceMenu(container, "second");
+  const editSecond = await screen.findByRole("menuitem", {
+    name: "settings.source.editConnection",
+  });
+  expect(editSecond.hasAttribute("data-disabled")).toBe(false);
   const expand = card("old-source").querySelector(
     'button[aria-label="settings.source.otherSavedConnections"]',
   )!;
@@ -1774,11 +1832,12 @@ it("设备操作按 Source 防重，无关设备与只读展开可继续，反�
   expect(lineButton("remote.action.details").matches(":disabled")).toBe(false);
   expect(lineButton("settings.source.setDefault").matches(":disabled")).toBe(true);
   expect(lineButton("settings.source.removeProfile").matches(":disabled")).toBe(true);
-  expect(
-    card("old-source")
-      .querySelector('button[aria-label="settings.source.editConnection"]')!
-      .matches(":disabled"),
-  ).toBe(true);
+  // 同设备（old-source）busy 期间编辑菜单项禁用。
+  openDeviceMenu(container, "old-source");
+  const editOld = await screen.findByRole("menuitem", {
+    name: "settings.source.editConnection",
+  });
+  expect(editOld.hasAttribute("data-disabled")).toBe(true);
   fireEvent.click(action("second"));
   expect(updateSource).toHaveBeenCalledTimes(2);
   await act(async () =>
@@ -1843,7 +1902,7 @@ it.each([false, true])("可选更新不吞同设备连接失败原因（同 Prof
     updateAvailability: "available",
     availableVersion: "2.0.0",
   });
-  render(
+  const { container } = render(
     createElement(SourceServerManagementPanel, {
       management: {
         getSnapshot: async () => snapshot,
@@ -1852,8 +1911,14 @@ it.each([false, true])("可选更新不吞同设备连接失败原因（同 Prof
     }),
   );
   await screen.findByText("Reinstalled server");
-  expect(screen.getByText("remote.error.hostUnreachable")).toBeTruthy();
-  if (!sameProfile) expect(screen.getByText("settings.source.updateAvailableVersion")).toBeTruthy();
+  // 修复依据：上游 v3.17.2 RDUX-13 连接失败原因与更新横幅都在设备展开区内。
+  expandDevice(container);
+  expect(await screen.findByText("remote.error.hostUnreachable")).toBeTruthy();
+  // 可更新版本同时出现在折叠行首 meta 与展开区横幅，用展开区范围断言横幅存在。
+  if (!sameProfile)
+    expect(container.querySelector("[data-device-details]")!.textContent).toContain(
+      "settings.source.updateAvailableVersion",
+    );
 });
 
 it("同连接的可选更新稍后隐藏后仍展示连接失败原因", async () => {
@@ -1865,7 +1930,7 @@ it("同连接的可选更新稍后隐藏后仍展示连接失败原因", async (
     updateAvailability: "available",
     availableVersion: "deferred-regression",
   };
-  render(
+  const { container } = render(
     createElement(SourceServerManagementPanel, {
       management: {
         getSnapshot: async () => snapshot,
@@ -1873,6 +1938,9 @@ it("同连接的可选更新稍后隐藏后仍展示连接失败原因", async (
       } as never,
     }),
   );
+  await screen.findByText("Reinstalled server");
+  // 修复依据：上游 v3.17.2 RDUX-13 更新横幅在设备展开区内。
+  expandDevice(container);
   await screen.findByText("remote.error.hostUnreachable");
   fireEvent.click(screen.getByRole("button", { name: "updateDialog.later" }));
   expect(screen.getByText("remote.error.hostUnreachable")).toBeTruthy();
