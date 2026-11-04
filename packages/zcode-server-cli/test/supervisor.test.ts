@@ -824,12 +824,14 @@ describe("Supervisor lifecycle", () => {
       5_000,
     );
     while (cores.length < 2) await new Promise<void>((resolve) => setImmediate(resolve));
-    await expect(
-      requestControl(layout.controlEndpoint, { command: "restart" }),
-    ).rejects.toMatchObject({
-      code: "operation-in-progress",
-      retryable: true,
-    });
+    // 修复依据：上游 v3.17.2 删除了只重启 Core 的 control `restart` 命令（整棵进程树重启改由
+    // 发起命令的 CLI 协调）；冲突的 lifecycle 请求改用仍存在的 `stop` 验证 gate。
+    await expect(requestControl(layout.controlEndpoint, { command: "stop" })).rejects.toMatchObject(
+      {
+        code: "operation-in-progress",
+        retryable: true,
+      },
+    );
     await expect(apply).rejects.toThrow(/timed out/i);
     await waitForState(supervisor, "ready");
     await supervisor.stop();

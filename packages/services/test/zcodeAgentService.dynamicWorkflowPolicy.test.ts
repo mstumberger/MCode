@@ -25,6 +25,11 @@ class MockProcessManagerBase {
     return { dispose() {} };
   }
   markReady() {}
+  // 修复依据：上游 v3.17.2 在客户端就绪阶段新增 runtimeCapabilities 协商，
+  // 失败分支会调用 processManager.isSharedRuntime 判断共享 runtime，mock 需补齐该方法。
+  isSharedRuntime() {
+    return false;
+  }
 }
 
 function sessionSnapshot(sessionId: string) {
@@ -53,6 +58,11 @@ async function setup(params: {
         )),
   );
   const request = vi.fn(async (method: string, requestParams?: unknown) => {
+    // 修复依据：上游 v3.17.2 客户端就绪阶段新增 runtimeCapabilities 能力协商请求，
+    // 返回空能力对象表示旧版 CLI（不含 sessionWorkspaceRouting 等新能力）。
+    if (method === zcodeProtocolMethods.runtimeCapabilities) {
+      return {};
+    }
     if (method === zcodeProtocolMethods.workspaceUpdateDynamicWorkflowPolicy) {
       if (params.policyResponse) return params.policyResponse(requestParams);
       return requestParams;
@@ -378,6 +388,10 @@ describe("session create / resume / v4 createSession 的 flag（DWG-02）", () =
     try {
       let firstCreateSeen = false;
       request.mockImplementation(async (method: string, requestParams?: unknown) => {
+        // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 协商，覆盖实现也需应答。
+        if (method === zcodeProtocolMethods.runtimeCapabilities) {
+          return {};
+        }
         if (method === zcodeProtocolMethods.workspaceUpdateDynamicWorkflowPolicy) {
           return requestParams;
         }
@@ -421,6 +435,10 @@ describe("session create / resume / v4 createSession 的 flag（DWG-02）", () =
     try {
       let firstCreateSeen = false;
       request.mockImplementation(async (method: string, requestParams?: unknown) => {
+        // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 协商，覆盖实现也需应答。
+        if (method === zcodeProtocolMethods.runtimeCapabilities) {
+          return {};
+        }
         if (method === zcodeProtocolMethods.workspaceUpdateDynamicWorkflowPolicy) {
           return requestParams;
         }

@@ -16,6 +16,13 @@ process.stdin.on("data", (chunk) => {
     buffer = buffer.slice(newline + 1);
     if (!line.trim()) continue;
     const message = JSON.parse(line);
+    // 修复依据：上游 v3.17.2 客户端就绪阶段新增 runtime/capabilities 能力协商请求，
+    // 且就绪屏障会等待其响应；假 Agent 必须应答（空对象 = 旧版 CLI 能力集），否则
+    // 后续 session/list 永远排在屏障后，测试超时。
+    if (message.method === "runtime/capabilities" && message.id !== undefined) {
+      send({ id: message.id, result: {} });
+      continue;
+    }
     if (message.method !== "session/list" || message.id === undefined) continue;
     send({ id: message.id, result: { sessions: [] } });
     const uiResult = { sessionId: "background", toolCallId: "open", serverName: "plugin:editor:editor", ui: { pluginId: "editor@example", resourceUri: "ui://editor" } };

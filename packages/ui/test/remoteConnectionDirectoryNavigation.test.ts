@@ -15,7 +15,12 @@ vi.mock("@/hooks/useWorkspaceServices.js", () => {
       boundary.version = patch.remoteBoundaryIntroAcknowledgedVersion;
     },
   };
-  return { useOptionalBaseWorkspaceServices: () => ({ settingService }) };
+  // 修复依据：上游 v3.17.2 起目录步骤读取设备展示输入（useRemoteDevicePresentationInput），
+  // 需要 useBaseWorkspaceServices；无管理服务时返回 null 即为 Web/手机空态。
+  return {
+    useOptionalBaseWorkspaceServices: () => ({ settingService }),
+    useBaseWorkspaceServices: () => ({}),
+  };
 });
 
 vi.mock("@/i18n/IntlProvider.js", () => ({

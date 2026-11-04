@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   execFile: vi.fn(),
   isDockerAvailable: vi.fn(),
   listDockerContainers: vi.fn(),
+  probeDockerDaemon: vi.fn(),
   resolveDockerCommand: vi.fn(),
   spawn: vi.fn(),
 }));
@@ -19,9 +20,12 @@ vi.mock("node:child_process", () => ({
   spawn: mocks.spawn,
 }));
 
+// 修复依据：上游 v3.17.2 的 docker-backend.ensureAvailable 改为调用 probeDockerDaemon
+// 一次性探测 daemon（替代旧的 isDockerAvailable 路径），mock 需补上该导出。
 vi.mock("@zcode/server/remote/docker-detect.js", () => ({
   isDockerAvailable: mocks.isDockerAvailable,
   listDockerContainers: mocks.listDockerContainers,
+  probeDockerDaemon: mocks.probeDockerDaemon,
   resolveDockerCommand: mocks.resolveDockerCommand,
 }));
 
@@ -75,10 +79,12 @@ describe("DockerBackend docker command resolution", () => {
     mocks.spawn.mockReset();
     mocks.isDockerAvailable.mockReset();
     mocks.listDockerContainers.mockReset();
+    mocks.probeDockerDaemon.mockReset();
     mocks.resolveDockerCommand.mockReset();
 
     mocks.resolveDockerCommand.mockReturnValue(RESOLVED_DOCKER_COMMAND);
     mocks.isDockerAvailable.mockResolvedValue(true);
+    mocks.probeDockerDaemon.mockResolvedValue(undefined);
     mocks.listDockerContainers.mockResolvedValue([
       {
         id: "abc123",

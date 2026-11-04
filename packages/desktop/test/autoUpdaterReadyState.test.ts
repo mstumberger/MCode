@@ -147,14 +147,28 @@ vi.mock("electron-updater", () => {
     setRequestHeaders() {}
   }
 
+  // 修复依据：上游 v3.17.2 在 initAutoUpdater 中执行 `autoUpdater instanceof pkg.NsisUpdater`
+  // 以挂接 verifyUpdateCodeSignature；mock 的 default export 缺少 NsisUpdater 会让 instanceof
+  // 右侧为 undefined 直接抛 TypeError，整个 initAutoUpdater 在 setFeedURL 之前中断。
+  // autoUpdaterMock 本身不是该 class 的实例，保持签名挂接分支不生效。
+  class NsisUpdaterMock {}
+
   return {
     CancellationToken: CancellationTokenMock,
     Provider: ProviderMock,
     default: {
       autoUpdater: autoUpdaterMock,
+      NsisUpdater: NsisUpdaterMock,
     },
   };
 });
+
+// 修复依据：上游 v3.17.2 在 win32 正式包安装前新增 Authenticode 签名校验
+// （quitAndInstallUpdate -> verifyWindowsAuthenticodeSignature，经 powershell-command.mjs 执行）。
+// 单测环境没有 powershell.exe，mock 为“签名始终有效”，让安装流程按通过校验继续。
+vi.mock("../scripts/powershell-command.mjs", () => ({
+  verifyWindowsAuthenticodeSignature: vi.fn(async () => null),
+}));
 
 vi.mock("node:fs/promises", () => ({
   readFile: readFileMock,
@@ -356,8 +370,11 @@ describe("autoUpdater ready state sync", () => {
       resolveReleaseChannel?: () => Promise<string>;
     };
     expect(options.deviceMid).toBe("mid-1");
+    // 修复依据：上游 v3.17.2 起 resolveEndpointOrigin 被上游包装：正式包只允许官方
+    // HTTPS 入口（DEFAULT/TEST_ZCODE_ENDPOINT_ORIGIN），非官方 origin 一律回落
+    // DEFAULT_ZCODE_ENDPOINT_ORIGIN（通用后端覆盖不是更新发布授权）。
     await expect(Promise.resolve(options.resolveEndpointOrigin?.())).resolves.toBe(
-      "https://endpoint.example.test",
+      "https://zcode.z.ai",
     );
     await expect(options.resolveReleaseChannel?.()).resolves.toBe("preview");
   });
@@ -709,6 +726,9 @@ describe("autoUpdater ready state sync", () => {
   });
 
   it("启动参数中的 update feed URL 优先于环境变量", async () => {
+    // 修复依据：上游 v3.17.2 起 resolveUpdateFeedSourceFromStartupConfig 在正式包
+    // （app.isPackaged）中固定返回 undefined，调试更新源只能在开发态生效。
+    appMock.isPackaged = false;
     const { resolveUpdateFeedSourceFromStartupConfig } = await import("../src/main/autoUpdater.js");
 
     expect(
@@ -749,6 +769,11 @@ describe("autoUpdater ready state sync", () => {
   });
 
   it("启动时可覆盖服务端 manifest 接口 URL", async () => {
+    // 修复依据：上游 v3.17.2 起 applyManifestUpdateProvider 只在非正式包应用
+    // options.updateFeedSource.url；正式包忽略调试 manifest 覆盖。开发态更新器
+    // 还需 ZCODE_AUTO_UPDATE_DEV 才会通过 canUseAutoUpdaterInCurrentRuntime。
+    appMock.isPackaged = false;
+    process.env["ZCODE_AUTO_UPDATE_DEV"] = "1";
     mockProcessPlatform("darwin");
     process.env["TEST_UPDATER_ARCH"] = "arm64";
     const { initAutoUpdater } = await import("../src/main/autoUpdater.js");
@@ -762,8 +787,7 @@ describe("autoUpdater ready state sync", () => {
     expect(autoUpdaterMock.setFeedURL).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: "custom",
-        manifestUrl:
-          "https://zcode.z.ai/api/v1/releases/electron/manifest?platform=old&channel=1",
+        manifestUrl: "https://zcode.z.ai/api/v1/releases/electron/manifest?platform=old&channel=1",
         releasePlatform: "darwin-aarch64",
       }),
     );
@@ -771,6 +795,10 @@ describe("autoUpdater ready state sync", () => {
   });
 
   it("manifest URL 覆盖不会切换到 generic feed", async () => {
+    // 修复依据：同上，manifest URL 覆盖仅开发态生效，正式包忽略该调试源；
+    // 开发态更新器需 ZCODE_AUTO_UPDATE_DEV 放行。
+    appMock.isPackaged = false;
+    process.env["ZCODE_AUTO_UPDATE_DEV"] = "1";
     mockProcessPlatform("darwin");
     process.env["TEST_UPDATER_ARCH"] = "arm64";
     const { initAutoUpdater } = await import("../src/main/autoUpdater.js");
@@ -1094,7 +1122,10 @@ describe("autoUpdater ready state sync", () => {
     autoUpdaterMock.emit("update-downloaded", { version: "0.1.25" });
 
     await vi.waitFor(() =>
-      expect(getAutoUpdaterState()).toMatchObject({ kind: "update-downloaded", version: "0.1.25" }),
+      expect(getAutoUpdaterState()).toMatchObject({
+        kind: "update-downloaded",
+        version: "0.1.25",
+      }),
     );
     expect(win.webContents.send).toHaveBeenCalledWith(
       PlatformChannels.UpdateStateChanged,

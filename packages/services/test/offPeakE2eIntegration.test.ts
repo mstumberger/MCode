@@ -141,8 +141,8 @@ describe("off-peak 端到端集成（进程内 mock 网关全链路）", () => {
     expect(settled?.settledAt).toBeDefined();
   });
 
-  it("OP07 机制：active 到期 400/3102 → 同 task_id 续跑重取号 → 新票再准入", async () => {
-    // activeMs 极短：首个 message 准入后立即过期，下个 message 收 3102。
+  it("OP07 机制：active 到期 400/3106 → 失败收口不自动补号 → Continue 手动同 task_id 补号再准入", async () => {
+    // activeMs 极短：首个 message 准入后立即过期，下个 message 收 3106。
     await boot({ readyDelayMs: 0, activeMs: 20 });
     const created = await createTask();
     const firstTicket = created.serverTicketId!;
@@ -163,18 +163,25 @@ describe("off-peak 端到端集成（进程内 mock 网关全链路）", () => {
     await new Promise((resolve) => setTimeout(resolve, 40)); // 超过 activeMs
     const expired = await sendMessage(firstTicket);
     expect(expired.status).toBe(400);
-    expect(((await expired.json()) as { code: number }).code).toBe(3102);
+    // 修复依据：上游 v3.17.2 服务端把过期分码——已激活票（active 窗口耗尽）返回 3106；
+    // 3102 仅表示未激活过号。
+    expect(((await expired.json()) as { code: number }).code).toBe(3106);
 
-    // host 识别 3102 → handleTicketExpiredDuringRun 回队重取号
+    // 修复依据：上游 v3.17.2 移除 3102/3106 自动回队补号（会静默消耗下一次额度）：
+    // host 识别过期 → handleTicketExpiredDuringRun 直接终态 failed，session 行保留，
+    // 不产生新票；重试由用户在 UI 侧发起（终态行不可 Continue，见 setPaused 状态机）。
     await service.handleTicketExpiredDuringRun(created.offPeakTaskId);
-    const requeued = await repo.get(created.offPeakTaskId);
-    expect(requeued?.status).toBe("queued");
-    expect(requeued?.sessionId).toBe("sess-1"); // session 保留供 resume 续跑
-    expect(requeued?.serverTicketId).not.toBe(firstTicket); // 新票
-
-    // 新票再次准入
-    const resumed = await sendMessage(requeued!.serverTicketId!);
-    expect(resumed.status).toBe(200);
+    const failed = await repo.get(created.offPeakTaskId);
+    expect(failed?.status).toBe("failed");
+    expect(failed?.failureReason).toBe("off-peak-ticket-expired");
+    expect(failed?.sessionId).toBe("sess-1"); // session 保留供用户定位
+    expect(failed?.serverTicketId).toBe(firstTicket); // 未自动换票
+    // 同步周期只核销旧票，不补新号。
+    await service.runSyncCycle();
+    const afterSync = await repo.get(created.offPeakTaskId);
+    expect(afterSync?.status).toBe("failed");
+    expect(afterSync?.serverTicketId).toBe(firstTicket);
+    expect(afterSync?.settledAt).toBeDefined();
   });
 
   it("OP04 机制：queued Pause 停派发→ready 过期停在 paused→Continue 重取号回队", async () => {

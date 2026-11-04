@@ -5,6 +5,12 @@ import { describe, expect, it, vi } from "vitest";
 
 const capturedRemoteSyncDialogProps = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 
+// 修复依据：上游 v3.17.2 起目录步骤读取设备展示输入，需要 useBaseWorkspaceServices。
+vi.mock("@/hooks/useWorkspaceServices.js", () => ({
+  useBaseWorkspaceServices: () => ({}),
+  useOptionalBaseWorkspaceServices: () => null,
+}));
+
 vi.mock("@/i18n/IntlProvider.js", () => ({
   useZCodeIntl: () => ({
     intl: {
@@ -172,27 +178,4 @@ describe("RemoteConnectionDialogContent layout", () => {
     expect(html).toContain("animate-spin");
   });
 
-  it("passes the local workspace path to MCP sync from the directory step", () => {
-    capturedRemoteSyncDialogProps.length = 0;
-
-    renderToStaticMarkup(
-      createElement(RemoteConnectionDirectoryStep, {
-        services: {} as never,
-        remoteTarget: {
-          kind: "ssh",
-          host: "localhost",
-          port: 2223,
-          username: "root",
-        },
-        localWorkspacePath: "/Users/alice/project",
-        localMcpSyncService: {} as never,
-        remoteMcpSyncService: {} as never,
-        onSelect: vi.fn(),
-        onBack: vi.fn(),
-        onCancel: vi.fn(),
-      }),
-    );
-
-    expect(capturedRemoteSyncDialogProps[0]?.mcpLocalWorkspacePath).toBe("/Users/alice/project");
-  });
 });

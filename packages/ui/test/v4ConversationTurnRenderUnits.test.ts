@@ -10,10 +10,13 @@ import type {
   TurnHeaderRow,
   UserInputRow,
 } from "@zcode/shared/zcode-protocol-v4";
-import {
-  buildConversationTurnRenderUnits,
-  resolveNextHighspeedExpiryMs,
-} from "@/v4/conversationTurnRenderUnits.js";
+import { buildConversationTurnRenderUnits } from "@/v4/conversationTurnRenderUnits.js";
+// 修复依据：上游 v3.17.2 把时间线的下一个 Highspeed 到期计算从
+// conversationTurnRenderUnits 的 resolveNextHighspeedExpiryMs(rows, nowMs) 迁到
+// highspeed/highspeedConversationRows 的 resolveNextHighspeedExpiryMsInPartition，
+// 入参改为 rows 分区（history ++ tail 按引用缓存，流式帧常数开销）。
+import { resolveNextHighspeedExpiryMsInPartition } from "@/highspeed/highspeedConversationRows.js";
+import { getConversationRowsPartition } from "@/v4/conversationProjectionStore.js";
 import { resolveAssistantCopyText } from "@/v4/ConversationTurnRow.js";
 
 function baseRow<T extends ConversationRow>(
@@ -239,8 +242,12 @@ describe("buildConversationTurnRenderUnits", () => {
     const units = buildConversationTurnRenderUnits(rows, { nowMs: 10_000 });
 
     expect(activeUnits.every((unit) => unit.showHighspeedOutputFooter !== true)).toBe(true);
-    expect(resolveNextHighspeedExpiryMs(rows, 9_999)).toBe(10_000);
-    expect(resolveNextHighspeedExpiryMs(rows, 10_000)).toBeUndefined();
+    expect(
+      resolveNextHighspeedExpiryMsInPartition(getConversationRowsPartition(rows), 9_999),
+    ).toBe(10_000);
+    expect(
+      resolveNextHighspeedExpiryMsInPartition(getConversationRowsPartition(rows), 10_000),
+    ).toBeUndefined();
 
     expect(
       units.map((unit) => ({

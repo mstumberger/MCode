@@ -65,6 +65,10 @@ function setupBase(options: { withLifecycle?: boolean } = {}) {
   const conversationFrames = new Emitter<ConversationTopicWireFrame>();
   const runtimeRestarts = new Emitter<{ workspaceKey: string }>();
   const runtimeLifecycle = new Emitter<LifecycleEvent>();
+  // 修复依据：上游 v3.17.2 的 connectionScope 新增 onDynamicSessionLifecycle 覆盖
+  // （session stopping 时静默驱逐 ownership/pending），ConversationProjectionStore 构造即
+  // 经 transport.onSessionLifecycle 订阅；base mock 必须提供该动态 Event，否则构造直接抛错。
+  const sessionLifecycle = new Emitter<{ sessionId: string; state: string }>();
   const nextSerialByConnection = new Map<string, number>();
   const nextId = (params: unknown) => {
     const connection = readTrustedZCodeAgentV4Connection(params);
@@ -90,6 +94,9 @@ function setupBase(options: { withLifecycle?: boolean } = {}) {
       };
     }),
     unsubscribeConversationV4: vi.fn(async () => {}),
+    // 修复依据：上游 v3.17.2 的 store.connect() 先经 transport.getSessionLifecycle 查询
+    // session 生命周期事实再订阅；base mock 需提供该方法（返回 null = 无已知事实）。
+    getSessionLifecycle: vi.fn(async () => null),
     resyncConversationV4: vi.fn(async (params: { subscriptionId: string }) => ({
       ack: {
         subscriptionId: params.subscriptionId,
@@ -103,6 +110,7 @@ function setupBase(options: { withLifecycle?: boolean } = {}) {
       revisionAtDecision: 1,
     })),
     onDynamicConversationFrame: vi.fn(() => conversationFrames.event),
+    onDynamicSessionLifecycle: vi.fn(() => sessionLifecycle.event),
     onAgentRuntimeRestarted: vi.fn((listener: (event: { workspaceKey: string }) => void) =>
       runtimeRestarts.event(listener),
     ),

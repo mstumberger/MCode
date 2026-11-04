@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  setMcpStoreDirectoryService,
-  setMcpStorePlatform,
-  useMcpStore,
-} from "@/store/mcpStore.js";
+// 修复依据：上游 v3.17.2 移除了 setMcpStoreDirectoryService 模块级 setter，
+// 目录服务改为与 workspacePath/identity/authorityKey 一组绑定存进 store 的
+// currentDirectoryService，由 ensureLoadedForWorkspace / setCurrentProjectPath 写入。
+import { setMcpStorePlatform, useMcpStore } from "@/store/mcpStore.js";
 import { DEFAULT_MCP_CONFIG, MCP_CONFIG_KEY } from "@/store/mcpStoreHelpers.js";
 import { logger } from "@/logger.js";
 
@@ -23,8 +22,9 @@ function createLocalStorageStub(initial: Record<string, string> = {}) {
 describe("mcpStore", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
-    setMcpStoreDirectoryService(null);
     setMcpStorePlatform(null);
+    // 修复依据：上游 v3.17.2 目录服务绑定进入 store state，重置时需一并清理
+    // currentDirectoryService / currentAuthorityKey，避免上个用例的远端绑定泄漏。
     useMcpStore.setState((state) => ({
       ...state,
       config: { ...DEFAULT_MCP_CONFIG },
@@ -33,6 +33,8 @@ describe("mcpStore", () => {
       statusSnapshots: {},
       currentProjectPath: "",
       currentWorkspaceIdentity: undefined,
+      currentAuthorityKey: undefined,
+      currentDirectoryService: null,
       enabledStates: {},
       deletedPreloadMcpServers: new Set(),
       isConfigLoaded: false,
@@ -340,8 +342,9 @@ describe("mcpStore", () => {
       })),
       saveMcpToUserDirectory: vi.fn(async () => {}),
     };
-    setMcpStoreDirectoryService(directoryService);
-
+    // 修复依据：上游 v3.17.2 移除全局 setMcpStoreDirectoryService；
+    // 本地目标（无 identity / authority）在 resolveTargetDirectoryService 中
+    // 固定返回 null 走 desktop platform，无需再预绑定目录服务。
     await useMcpStore
       .getState()
       .ensureLoadedForWorkspace("/local/workspace", directoryService);

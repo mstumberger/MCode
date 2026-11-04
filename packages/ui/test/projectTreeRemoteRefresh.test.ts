@@ -80,7 +80,9 @@ describe("project tree remote refresh", () => {
     expect(refreshEntry).toHaveBeenCalledWith({
       entryId: "entry",
       expectedLastSyncedAt: 1,
-      project: { projectId: "p", name: "remote", roots: [] },
+      // 修复依据：上游 v3.17.2 refreshEntry 载荷补传 project.deleted，
+      // 目录侧据此同步项目的软删除状态。
+      project: { projectId: "p", name: "remote", roots: [], deleted: false },
     });
     expect(result.tree.projects[0]?.id).toBe("p");
   });

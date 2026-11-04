@@ -195,8 +195,22 @@ describe("release installer", () => {
     await new Promise<void>((resolve, reject) => execFile("tar", ["-czf", archivePath, "zcode-server-linux-x64"], { cwd: root }, (error) => error ? reject(error) : resolve()));
     const installer = new ReleaseInstaller(layout);
     const first = await installer.installArchive({ archivePath, target: "linux-x64", version: "2.1.0" });
-    await writeFile(join(first.releaseDir, "runtime", "server-core.js"), "tampered", "utf8");
 
+    // 修复依据：上游 v3.17.2（A2）：完整性记录与本次 archive 身份一致时，内容被篡改的既有 release
+    // 判为损坏副本并自动用已校验的 incoming 修复，不再抛 immutable release conflict。
+    await writeFile(join(first.releaseDir, "runtime", "server-core.js"), "tampered", "utf8");
+    const repaired = await installer.installArchive({
+      archivePath,
+      target: "linux-x64",
+      version: "2.1.0",
+    });
+    expect(repaired.releaseDir).toBe(first.releaseDir);
+    await expect(readFile(join(first.releaseDir, "runtime", "server-core.js"), "utf8")).resolves.toBe(
+      "",
+    );
+
+    // 记录缺失时无法证明它属于本 release，仍按 immutable release conflict 失败。
+    await rm(join(first.releaseDir, ".release-integrity.json"), { force: true });
     await expect(
       installer.installArchive({ archivePath, target: "linux-x64", version: "2.1.0" }),
     ).rejects.toThrow(/immutable release conflict/);

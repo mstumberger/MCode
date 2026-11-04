@@ -20,6 +20,7 @@ import {
 import { SessionPane } from "@/v4/SessionPane.js";
 import { AssistantCodeCommentFeatureProvider } from "@/AssistantCodeCommentFeatureProvider.js";
 import type { AssistantCodeCommentCard } from "@/lib/assistantCodeComment.js";
+import { TabStoreProvider } from "@/store/TabStoreProvider.js";
 
 const projectionState = vi.hoisted(() => ({
   current: null as {
@@ -709,14 +710,21 @@ describe("SessionPane assistant preview card handler wiring", () => {
       createElement(
         ZCodeIntlProvider,
         { initialLocale: "zh-CN" },
-        createElement(SessionPane, {
-          paneId: "workspace-main",
-          sessionId: "session-1",
-          workspacePath: "/workspace",
-          onOpenBrowserUrl,
-          onOpenCodeViewer,
-          onOpenFileLink,
-        }),
+        // 修复依据：上游 v3.17.2 的 SessionPane 新增 useSessionRuntimeRestart 链路
+        // （useWorkspaceServices → useResolvedRemoteWorkspaceSessionId → useTabStore），
+        // 渲染 SessionPane 必须包在 TabStoreProvider 内，否则 useTabStore 直接抛错。
+        createElement(
+          TabStoreProvider,
+          null,
+          createElement(SessionPane, {
+            paneId: "workspace-main",
+            sessionId: "session-1",
+            workspacePath: "/workspace",
+            onOpenBrowserUrl,
+            onOpenCodeViewer,
+            onOpenFileLink,
+          }),
+        ),
       ),
     );
 

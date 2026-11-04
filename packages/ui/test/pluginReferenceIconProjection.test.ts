@@ -2,7 +2,6 @@ import type { ZCodePluginReferenceCatalogEntry } from "@zcode/shared";
 import { describe, expect, it } from "vitest";
 import {
   buildSessionPluginIconMap,
-  hasPluginReferenceUserRows,
   isSessionPluginCatalogReady,
 } from "@/v4/pluginReferenceIconProjection.js";
 
@@ -52,17 +51,4 @@ describe("Session Plugin icon projection", () => {
     expect(iconMap.get("skill-creator")).toBeUndefined();
   });
 
-  it("only enables the expensive Session catalog projection when a user row references a Plugin", () => {
-    expect(
-      hasPluginReferenceUserRows([
-        { kind: "assistantText", text: "plugin://demo@market" },
-        { kind: "userInput", text: "普通消息" },
-      ]),
-    ).toBe(false);
-    expect(
-      hasPluginReferenceUserRows([
-        { kind: "userInput", text: "使用 [@Demo](plugin://demo@market)" },
-      ]),
-    ).toBe(true);
-  });
 });

@@ -890,10 +890,13 @@ describe("ConversationTurnGroup assistant history status", () => {
       { nowMs: 9_999 },
     );
 
-    expect(html).toContain('data-highspeed-status-tag="true"');
+    // 修复依据：上游 v3.17.2 运行中的轮不渲染历史折叠头（AssistantHistoryStatus 被
+    // shouldShowHistoryStatus 的 !turnRunning 分支排除），HighSpeed 标签（data-highspeed-status-tag）
+    // 只随完成后的折叠头出现；生成期间只保留流光渐变 + ChatLoading 计时，
+    // 持久化的节省时间（savedDuration）依旧不能提前显示。
     expect(html).toContain('data-highspeed-gradient="true"');
     expect(html).toContain("highspeed-animated-gradient-text");
-    expect(html).toContain("HighSpeed");
+    expect(html).toContain('data-testid="chat-loading"');
     expect(html).not.toContain('data-highspeed-saved-duration="true"');
     expect(html).not.toContain("节省约");
   });
@@ -1110,8 +1113,12 @@ describe("ConversationTurnGroup assistant history status", () => {
     expect(html).toContain("Goal");
     expect(html).toContain("开发一个招投标管理系统");
     expect(html).not.toContain("已工作 1 秒");
-    expect(html.match(/工作中 3 秒/g)).toHaveLength(1);
-    expect(html.match(/chat-assistant-history-trigger/g)).toHaveLength(1);
+    // 修复依据：上游 v3.17.2 运行态不再渲染历史折叠头（AssistantHistoryStatus），
+    // 工作状态统一由 ChatLoading 承载，运行时长改为 formatRunningWorkDuration 的
+    // "3.0 秒" 十进制格式；合计仍只有一个工作状态，且无历史折叠 trigger。
+    expect(html.match(/工作中/g)).toHaveLength(1);
+    expect(html).toContain("3.0 秒");
+    expect(html).not.toContain("chat-assistant-history-trigger");
   });
 
   it("labels a running turn as working with the elapsed duration", () => {
@@ -1123,7 +1130,12 @@ describe("ConversationTurnGroup assistant history status", () => {
       }),
     );
 
-    expect(html).toContain("工作中 5 秒");
+    // 修复依据：上游 v3.17.2 运行中的轮不再渲染历史折叠头（shouldShowHistoryStatus 排除
+    // turnRunning 与 running 态），耗时改由 ChatLoading 以 initialElapsedMs 起步、按
+    // formatRunningWorkDuration 的 "5.0 秒" 运行格式展示。
+    expect(html).toContain('data-testid="chat-loading"');
+    expect(html).toContain("工作中");
+    expect(html).toContain("5.0 秒");
   });
 
   it("ETS01/ETS03：运行工作段尾部的单个 Explore 工具不创建父分组", () => {
@@ -1237,7 +1249,7 @@ describe("ConversationTurnGroup assistant history status", () => {
     // 那一轮既没有标题、也退化成普通 assistant 的工时折叠。
     ["workflow", "Fan out the review across three actors"],
   ] as const)(
-    "BG27/BG28：%s background result 用任务标题永久展开历史",
+    "BG27/BG28：%s background result 恒显任务标题，完成后历史按唤醒轮耗时折叠",
     (backgroundSource, title) => {
       const earlyText = assistantTextRow(4, { text: "后台总结第一段" });
       const tool = toolCallRow(5, "Read", { file_path: "AGENTS.md" });
@@ -1258,17 +1270,19 @@ describe("ConversationTurnGroup assistant history status", () => {
       ]);
       const html = renderUnit(unit!);
 
+      // 修复依据：上游 v3.17.2 的 ConversationBackgroundResultWork 改用与普通回复一致的
+      // 完成态折叠（Collapsible + AssistantHistoryStatus）：完成后历史行进入折叠内容，
+      // 关闭态不渲染；任务标题与最终 assistant 文本始终可见，折叠头显示本次唤醒轮耗时。
       expect(html).toContain(`data-testid="chat-background-result-title-${unit!.key}"`);
       expect(html).toContain(title);
-      expect(html).toContain("后台总结第一段");
-      expect(html).toContain("tool-5");
+      expect(html).toContain("已工作 12 秒");
+      expect(html).toContain(`data-testid="chat-assistant-history-trigger-${unit!.key}"`);
+      // 折叠内容默认关闭：历史行（第一段总结与工具行）不在 DOM 中。
+      expect(html).not.toContain("后台总结第一段");
+      expect(html).not.toContain("tool-5");
       expect(html).toContain("后台总结最终段");
-      expect(html.indexOf("后台总结第一段")).toBeLessThan(html.indexOf("tool-5"));
-      expect(html.indexOf("tool-5")).toBeLessThan(html.indexOf("后台总结最终段"));
-      expect(html).not.toContain("已工作 12 秒");
-      expect(html).not.toContain("chat-assistant-history-trigger");
-      expect(html).not.toContain("chat-assistant-history-content");
-      expect(html).not.toContain("data-history-open");
+      expect(html.indexOf(title)).toBeLessThan(html.indexOf("后台总结最终段"));
+      expect(html).toContain(`data-testid="chat-assistant-history-content-${unit!.key}"`);
     },
   );
 

@@ -237,30 +237,37 @@ vi.mock("@/store/pluginManagementStore.js", () => ({
 vi.mock("@/settings/PluginScopeMenu.js", () => ({
   PluginScopeMenu: ({
     workspaceTabs,
+    groups,
     onScopeKeyChange,
   }: {
-    workspaceTabs: Array<{ workspacePath: string; workspaceIdentity?: string }>;
+    // 修复依据：上游 v3.17.2 起顶部菜单改用 groups 驱动（每组的 options 即 scope key）；
+    // 兼容旧 workspaceTabs 形态的其余调用点。
+    workspaceTabs?: Array<{ workspacePath: string; workspaceIdentity?: string }>;
+    groups?: Array<{ options: Array<{ key: string }> }>;
     onScopeKeyChange: (key: string) => void;
-  }) =>
-    mockScopeRouting.enabled
-      ? createElement(
-          "div",
-          null,
-          ["user", ...workspaceTabs.map((tab) => tab.workspaceIdentity || tab.workspacePath)].map(
-            (key) =>
-              createElement(
-                "button",
-                {
-                  key,
-                  type: "button",
-                  "data-testid": `scope-${key}`,
-                  onClick: () => onScopeKeyChange(key),
-                },
-                key,
-              ),
-          ),
-        )
-      : createElement("button", null, "scope"),
+  }) => {
+    if (!mockScopeRouting.enabled) return createElement("button", null, "scope");
+    // groups 模式：远端 User 的 option.key 形如 remote-user:<id>；workspace 目标的 key 沿用 identity。
+    const keys = groups
+      ? groups.flatMap((group) => group.options.map((option) => option.key))
+      : ["user", ...(workspaceTabs ?? []).map((tab) => tab.workspaceIdentity || tab.workspacePath)];
+    return createElement(
+      "div",
+      null,
+      keys.map((key) =>
+        createElement(
+          "button",
+          {
+            key,
+            type: "button",
+            "data-testid": `scope-${key}`,
+            onClick: () => onScopeKeyChange(key),
+          },
+          key,
+        ),
+      ),
+    );
+  },
   getPluginWorkspaceKey: (tab: { workspacePath: string; workspaceIdentity?: string }) =>
     mockScopeRouting.enabled ? tab.workspaceIdentity || tab.workspacePath : "workspace",
   isPluginScopeWorkspaceConnected: () => true,
@@ -2071,7 +2078,7 @@ vi.mock("@/workspace-config-catalog/index.js", async (importOriginal) => {
   const workspace = await import("@/hooks/useWorkspaceServices.js");
   return {
     ...actual,
-    useConfigWorkspaceTargets: () => mockTabs.tabs,
+    useConfigWorkspaceTargets: () => ({ targets: mockTabs.tabs, loaded: true }),
     useConfigWorkspaceServicesResolution: workspace.useWorkspaceServicesResolution,
   };
 });

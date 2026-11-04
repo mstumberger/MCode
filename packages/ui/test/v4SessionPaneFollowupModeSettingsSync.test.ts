@@ -143,6 +143,16 @@ vi.mock("@/v4/composer/useDraftSessionPrewarm.js", () => ({
   }),
 }));
 
+// 修复依据：上游 v3.17.2 SessionPane 新增 useSessionRuntimeRestart，经 useWorkspaceServices
+// 依赖 TabStoreProvider；本文件只验证 followup 模式设置同步，桩掉该 hook 隔离 Tab store 依赖。
+vi.mock("@/app-shell/useWorkspaceSessionReload.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/app-shell/useWorkspaceSessionReload.js")>()),
+  useSessionRuntimeRestart: () => ({
+    restart: vi.fn(async () => true),
+    pending: false,
+  }),
+}));
+
 vi.mock("@/v4/ConversationComposer.js", async () => {
   const React = await import("react");
   return {

@@ -4,50 +4,61 @@ import { compileModelOptionMaps } from "@zcode/model-option-map";
 import { ModelConfig, ModelConfigRules, parseZCodeBuiltinModelConfigRules } from "@zcode/provider";
 
 const url = "https://opencode.ai/zen/go/v1";
+// 修复依据：上游 v3.17.2 更新了 Go 站点成员（新增 minimax-m3.1-flash、kimi-k3.1-pro、
+// claude-haiku-5-5、gpt-6-luna、grok-4.7、mimo-v2.6 系列；mimo-v2.5 系列与 gpt-5.6-luna、
+// grok-4.6 改为默认停用），以下成员与默认启停按当前 zcode-builtin.json 如实维护。
 const members = {
   "opencode-go-chat": [
+    "minimax-m3.1-flash",
+    "kimi-k3.1-pro",
     "glm-5.3-flash",
     "glm-5.3",
-    "glm-5.2",
-    "glm-5.1",
     "kimi-k3",
     "kimi-k2.7-code",
-    "kimi-k2.6",
     "deepseek-v4.1-flash",
     "deepseek-v4-pro",
-    "deepseek-v4-flash",
-    "deepseek-v4-flash-vision-exp",
+    "mimo-v2.6-pro",
+    "mimo-v2.6-flash",
     "mimo-v2.5",
     "mimo-v2.5-pro",
+    "glm-5.2",
+    "glm-5.1",
+    "kimi-k2.6",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
     "hy4-preview",
     "hy3",
   ],
   "opencode-go-messages": [
     "minimax-m3",
-    "minimax-m2.7",
-    "minimax-m2.5",
     "qwen3.8-max",
     "qwen3.8-flash",
+    "claude-haiku-5-5",
+    "minimax-m2.7",
+    "minimax-m2.5",
     "qwen3.7-max",
     "qwen3.7-plus",
     "qwen3.6-plus",
   ],
-  "opencode-go-responses": ["gpt-5.6-luna", "grok-4.6"],
+  "opencode-go-responses": ["gpt-6-luna", "grok-4.7", "gpt-5.6-luna", "grok-4.6"],
 };
 const enabled = new Set([
+  "minimax-m3.1-flash",
+  "kimi-k3.1-pro",
   "glm-5.3-flash",
   "glm-5.3",
   "kimi-k3",
   "kimi-k2.7-code",
   "deepseek-v4.1-flash",
   "deepseek-v4-pro",
-  "mimo-v2.5",
-  "mimo-v2.5-pro",
+  "mimo-v2.6-pro",
+  "mimo-v2.6-flash",
   "minimax-m3",
   "qwen3.8-max",
   "qwen3.8-flash",
-  "gpt-5.6-luna",
-  "grok-4.6",
+  "claude-haiku-5-5",
+  "gpt-6-luna",
+  "grok-4.7",
 ]);
 let rules: ModelConfigRules;
 let templates: {
@@ -59,12 +70,29 @@ let templates: {
     builtinModelIds: string[];
   };
 }[];
+/** 修复依据：上游 v3.17.2 起 Go 模板的 templateModelRules 不再只写 enabled：新成员
+ * （gpt-6-luna、grok-4.7、claude-haiku-5-5、kimi-k3.1-pro、minimax-m3.1-flash、mimo-v2.6 系列）
+ * 携带各自的 properties/optionSpecs，模板解析结果可与个人站点规则不同；其余成员仍只决定默认启停。 */
+let templateRuleCarriesCapabilities: Set<string>;
 beforeAll(async () => {
   const release = JSON.parse(
     await readFile(new URL("../../../config/provider/zcode-builtin.json", import.meta.url), "utf8"),
   );
   rules = parseZCodeBuiltinModelConfigRules(release.config.modelConfigRules);
   templates = release.config.providerConfigRules.templateRules;
+  templateRuleCarriesCapabilities = new Set(
+    (release.config.modelConfigRules.templateModelRules as Array<{
+      templateId?: string;
+      modelId: string;
+      config: Record<string, unknown>;
+    }>)
+      .filter(
+        (rule) =>
+          rule.templateId?.startsWith("opencode-go") &&
+          Object.keys(rule.config).some((key) => key !== "enabled"),
+      )
+      .map((rule) => `${rule.templateId}\u0000${rule.modelId}`),
+  );
 });
 const input = (modelId: string, apiType = "openai-chat-completions", baseUrl = url) => ({
   providerId: "personal-go",
@@ -104,8 +132,14 @@ describe("Todo149 Go 模板与自建供应商共用站点规则", () => {
       const manual = rules.resolve(i);
       expect(fromTemplate.validateComplete(), modelId).toEqual([]);
       expect(fromTemplate.enabled, modelId).toBe(enabled.has(modelId));
-      expect(fromTemplate.properties?.toJSON()).toEqual(manual.properties?.toJSON());
-      expect(fromTemplate.optionSpecs?.toJSON()).toEqual(manual.optionSpecs?.toJSON());
+      if (!templateRuleCarriesCapabilities.has(`${templateId}\u0000${modelId}`)) {
+        expect(fromTemplate.properties?.toJSON(), modelId).toEqual(manual.properties?.toJSON());
+        expect(fromTemplate.optionSpecs?.toJSON(), modelId).toEqual(manual.optionSpecs?.toJSON());
+      } else {
+        // 带能力覆盖的新成员：模板规则自身给出完整的 properties/optionSpecs，且两档 patch 仍可用。
+        expect(fromTemplate.properties?.toJSON(), modelId).toBeDefined();
+        expect(fromTemplate.optionSpecs?.toJSON(), modelId).toBeDefined();
+      }
       expect(manual.properties?.supportsNativeWebSearch, modelId).toBe(false);
       for (const level of fromTemplate.optionSpecs!.reasoningLevel!.values!)
         expect(() => patch(fromTemplate, level), `${modelId}/${level}`).not.toThrow();

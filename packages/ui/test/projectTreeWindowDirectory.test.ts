@@ -50,6 +50,8 @@ it("MRO02：目录读取、修改入口和变化订阅一起选择窗口 owner�
     tree: { projects: [], tasks: [] },
     directory: { hosts: [], entries: [] },
     availability: new Map(),
+    // 修复依据：上游 v3.17.2 读取结果新增 errors。
+    errors: new Map(),
   });
   const { result, rerender, unmount } = renderHook(() => useProjectTree());
   await waitFor(() => expect(result.current.loading).toBe(false));

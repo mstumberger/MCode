@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
+import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,6 +7,56 @@ import { DataRootLock } from "../src/runtime/lock.js";
 
 // 超出常见平台 pid 上限的值：process.kill(pid, 0) 必然 ESRCH，模拟已死的持锁进程。
 const DEAD_PID = 2 ** 30;
+
+// 修复依据：上游 v3.17.2 的判活从“仅凭 PID”改为核对进程身份（同 pid 但 ownerToken 非本实例
+// 持有、或 processIdentity 不一致均视为 stale），“存活持锁者”必须用真实运行的其他进程模拟。
+const LOCK_HOLDER_MODULE_URL = new URL("../src/runtime/lock.ts", import.meta.url).href;
+const LOCK_HOLDER_PROGRAM = `
+  const { writeFile } = await import("node:fs/promises");
+  const { DataRootLock } = await import(process.env.ZCODE_TEST_LOCK_MODULE);
+  const lock = new DataRootLock(process.env.ZCODE_TEST_LOCK_FILE);
+  await lock.acquire();
+  await writeFile(process.env.ZCODE_TEST_LOCK_READY, "ready\\n");
+  // 顶层 await 永不 resolve 会被 Node 判为 unsettled top-level await 并退出进程，改用定时器保活。
+  setInterval(() => {}, 1 << 30);
+`;
+
+function spawnLockHolder(lockFile: string, readyFile: string): ChildProcess {
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "--eval", LOCK_HOLDER_PROGRAM],
+    {
+      env: {
+        ...process.env,
+        ZCODE_TEST_LOCK_MODULE: LOCK_HOLDER_MODULE_URL,
+        ZCODE_TEST_LOCK_FILE: lockFile,
+        ZCODE_TEST_LOCK_READY: readyFile,
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
+  child.stderr.on("data", () => {});
+  return child;
+}
+
+async function waitForLockHolderReady(readyFile: string): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    if (await access(readyFile).then(
+      () => true,
+      () => false,
+    ))
+      return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("lock holder child did not become ready");
+}
+
+async function stopLockHolder(child: ChildProcess): Promise<void> {
+  child.kill();
+  if (child.exitCode !== null) return;
+  await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+}
 
 describe("DataRootLock", () => {
   it("recovers a stale lock left behind by a dead process", async () => {
@@ -35,28 +85,51 @@ describe("DataRootLock", () => {
   it("refuses to steal the lock from a live process", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-r2-lock-live-"));
     const lockFile = join(root, "run", "server.lock");
+    const readyFile = join(root, "ready");
     await mkdir(join(root, "run"), { recursive: true });
-    await writeFile(lockFile, `${JSON.stringify({ pid: process.pid, acquiredAt: Date.now() })}\n`, "utf8");
 
-    const lock = new DataRootLock(lockFile);
-    await expect(lock.acquire()).rejects.toThrow(/already running/);
-  });
+    const child = spawnLockHolder(lockFile, readyFile);
+    try {
+      await waitForLockHolderReady(readyFile);
+      const lock = new DataRootLock(lockFile);
+      await expect(lock.acquire()).rejects.toThrow(/already running/);
+    } finally {
+      await stopLockHolder(child);
+    }
+  }, 30_000);
 
   it("reports missing, stale, active and malformed lock owners without mutating the file", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-r2-lock-inspect-"));
     const lockFile = join(root, "run", "server.lock");
+    const readyFile = join(root, "ready");
     const lock = new DataRootLock(lockFile);
 
     await expect(lock.inspect()).resolves.toMatchObject({ state: "missing" });
     await mkdir(join(root, "run"), { recursive: true });
     await writeFile(lockFile, `${JSON.stringify({ pid: DEAD_PID })}\n`, "utf8");
     await expect(lock.inspect()).resolves.toMatchObject({ state: "stale", pid: DEAD_PID });
+    // 修复依据：上游 v3.17.2 起 pid 等于自己但 ownerToken 非本实例持有的锁按 stale 处理
+    // （防 PID 复用/本进程重启后的残留锁卡死启动）；active 需要真实存活的其他持锁进程。
     await writeFile(lockFile, `${JSON.stringify({ pid: process.pid })}\n`, "utf8");
-    await expect(lock.inspect()).resolves.toMatchObject({ state: "active", pid: process.pid });
+    await expect(lock.inspect()).resolves.toMatchObject({ state: "stale", pid: process.pid });
+
+    // 同 PID 的存活记录在其他进程视角仍按 PID 判活，先清掉 fixture 再让子进程真实持锁。
+    await rm(lockFile, { force: true });
+    const child = spawnLockHolder(lockFile, readyFile);
+    try {
+      await waitForLockHolderReady(readyFile);
+      await expect(lock.inspect()).resolves.toMatchObject({
+        state: "active",
+        pid: child.pid,
+      });
+    } finally {
+      await stopLockHolder(child);
+    }
+
     await writeFile(lockFile, "not-json", "utf8");
     await expect(lock.inspect()).resolves.toMatchObject({ state: "invalid" });
     await expect(readFile(lockFile, "utf8")).resolves.toBe("not-json");
-  });
+  }, 30_000);
 
   it("keeps locks under different data roots isolated (R2-CLI-13)", async () => {
     const rootA = await mkdtemp(join(tmpdir(), "zcode-r2-lock-a-"));

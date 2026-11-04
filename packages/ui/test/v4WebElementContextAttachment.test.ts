@@ -286,6 +286,20 @@ function renderComposer(onSendText: (text: string, options?: unknown) => Promise
         { initialLocale: "en-US" },
         createElement(ConversationComposer, {
           composerDraft: { text: "", updatedAt: 0 },
+          // 修复依据：上游 v3.17.2 的 ConversationComposer 新增必需 prop
+          // captureComposerContentLifecycleCommit（挂载 effect 即调用，用于 pagehide/unmount
+          // 时把当前草稿一次性写回对应 scope）；本测试不驱动草稿持久化，注入空提交桩即可。
+          captureComposerContentLifecycleCommit: () => () => {},
+          // 修复依据：上游 v3.17.2 发送链路经 captureComposerSubmissionDraftTransaction 冻结
+          // 提交 scope：成功路径 finalize() 返回非空才清空输入并移除上下文 chip，
+          // 失败路径 restore() 恢复正文。此处按该契约注入最小事务桩。
+          captureComposerSubmissionDraftTransaction: () => ({
+            matchesTarget: () => false,
+            claim: () => true,
+            restore: () => ({ applied: true, current: true }),
+            finalize: () => ({ applied: true, current: true }),
+            release: () => {},
+          }),
           updateComposerContent: vi.fn(),
           replaceComposerDraft: vi.fn(),
           draftMode: true,

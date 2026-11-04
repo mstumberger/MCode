@@ -72,7 +72,9 @@ describe("项目位置缓存恢复", () => {
   it("重建遇到 503 不在本次解析重试，不写位置或清理其他凭据", async () => {
     const f = fixture();
     f.request.mockResolvedValue(new Response("unavailable", { status: 503 }));
-    await expect(f.client.resolve(f.input)).rejects.toThrow("project_token_request_failed");
+    // 修复依据：上游 v3.17.2（ZCT-2111046389485834240）把临时 HTTP 状态结构化为
+    // project_token_http_<status>，不再统一压成 project_token_request_failed。
+    await expect(f.client.resolve(f.input)).rejects.toThrow("project_token_http_503");
     expect(f.request).toHaveBeenCalledTimes(1);
     expect(f.store.save).not.toHaveBeenCalled();
     expect(f.store.delete).not.toHaveBeenCalled();
@@ -203,9 +205,20 @@ describe("Desktop PAT 临时故障分类", () => {
         expect(issues).toBe(2);
         vi.setSystemTime(start + 600_000);
       }
-      await expect(client.resolve(input)).rejects.toThrow(
-        /^project_token_(request_failed|invalid_response)$/,
-      );
+      // 修复依据：上游 v3.17.2（ZCT-2111046389485834240）换证失败按结构化类别投影固定码：
+      // network/timeout → project_token_network_error/timeout；HTTP 状态 → project_token_http_<status>；
+      // 404 与 2xx 非 JSON → invalid_response；未归类异常仍为 request_failed。
+      const expectedFinalCode =
+        failure === "network"
+          ? "project_token_network_error"
+          : failure === "timeout"
+            ? "project_token_timeout"
+            : failure === 429 || failure === 503 || failure === 401 || failure === 403
+              ? `project_token_http_${failure}`
+              : failure === 404 || failure === "invalid"
+                ? "project_token_invalid_response"
+                : "project_token_request_failed";
+      await expect(client.resolve(input)).rejects.toThrow(expectedFinalCode);
       expect(JSON.stringify([...values])).not.toMatch(/old-pat|login/);
     },
   );

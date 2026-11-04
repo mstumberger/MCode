@@ -44,6 +44,9 @@ function expectedTelemetrySendOptions() {
     telemetrySeed: {
       sendTime: expect.any(Number),
       extraDetail: {
+        // 修复依据：上游 v3.17.2 send telemetry extraDetail 新增 ui_mode；
+        // 无 ui store 的单测环境 normalizeTelemetryUiMode(undefined) 归一为 "unknown"。
+        ui_mode: "unknown",
         ask_mode: "",
         model_name: "",
         model_provider: "glm",
@@ -292,6 +295,150 @@ function flushAsyncWork() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+// 修复依据：上游 v3.17.2 把 Composer 草稿写入从单一 updateComposerContent 拆成
+// stage/persist/lifecycle-commit/submission-transaction 的 owner API（useDraftConfigControl），
+// ConversationComposer 必需 props 新增 composerDraftScopeToken、stageComposerContent、
+// captureComposerContentLifecycleCommit、captureComposerSubmissionDraftTransaction、
+// persistComposerContent。这里按 useDraftConfigControl 同等语义实现测试自持 owner：
+// baseDraft/contentRevision/staged 状态与 claim/restore/finalize 状态机一一对应。
+const composerScopeTokens = new Map<string, symbol>();
+
+function getComposerScopeToken(scopeId: string): symbol {
+  let token = composerScopeTokens.get(scopeId);
+  if (!token) {
+    token = Symbol(`composer-scope:${scopeId}`);
+    composerScopeTokens.set(scopeId, token);
+  }
+  return token;
+}
+
+type TestComposerDraftContent = Pick<V4ComposerDraft, "text" | "editorStateJson" | "mention">;
+
+function createComposerContentControl(options: {
+  scopeId: string;
+  initialDraft: V4ComposerDraft;
+  write: (content: Omit<V4ComposerDraft, "updatedAt">) => void;
+}) {
+  const scopeToken = getComposerScopeToken(options.scopeId);
+  const contentRevision = { current: 0 };
+  let liveDraft: V4ComposerDraft = options.initialDraft;
+  let baseDraft: V4ComposerDraft = options.initialDraft;
+  let staged: { baseDraft: V4ComposerDraft; content: TestComposerDraftContent } | null = null;
+  const persist = (draft: Omit<V4ComposerDraft, "updatedAt">) => {
+    baseDraft = { ...baseDraft, ...draft } as V4ComposerDraft;
+    liveDraft = { ...baseDraft, updatedAt: Date.now() };
+    options.write(draft);
+  };
+  const isCurrent = () => liveDraft.text === baseDraft.text;
+  const clearPending = () => {
+    staged = null;
+  };
+  return {
+    composerDraftScopeToken: scopeToken,
+    stageComposerContent: (content: TestComposerDraftContent) => {
+      staged = { baseDraft: liveDraft, content };
+      contentRevision.current += 1;
+    },
+    captureComposerContentLifecycleCommit: () => {
+      let active = true;
+      return (content: TestComposerDraftContent) => {
+        if (!active) return;
+        active = false;
+        persist({ ...baseDraft, editorStateJson: undefined, mention: undefined, ...content });
+        contentRevision.current += 1;
+        clearPending();
+      };
+    },
+    captureComposerSubmissionDraftTransaction: (content: TestComposerDraftContent) => {
+      const submittedContent: TestComposerDraftContent = {
+        text: content.text,
+        editorStateJson: content.editorStateJson,
+        mention: content.mention,
+      };
+      const capturedRevision = contentRevision.current;
+      let state: "captured" | "claimed" | "restored" | "finalized" = "captured";
+      let claimedRevision: number | null = null;
+      let restoredRevision: number | null = null;
+      return {
+        matchesTarget: (candidateScopeToken: symbol) => candidateScopeToken === scopeToken,
+        claim: () => {
+          if (
+            state !== "captured" ||
+            !isCurrent() ||
+            contentRevision.current !== capturedRevision
+          ) {
+            return false;
+          }
+          persist({ ...baseDraft, text: "", editorStateJson: undefined, mention: undefined });
+          contentRevision.current += 1;
+          claimedRevision = contentRevision.current;
+          state = "claimed";
+          clearPending();
+          return true;
+        },
+        restore: () => {
+          if (state !== "claimed" || claimedRevision === null) {
+            return { current: isCurrent(), applied: state === "restored" };
+          }
+          const current = isCurrent();
+          const restored = contentRevision.current === claimedRevision;
+          if (restored) {
+            persist({ ...baseDraft, ...submittedContent });
+            contentRevision.current += 1;
+            restoredRevision = contentRevision.current;
+            state = "restored";
+          }
+          clearPending();
+          return { current, applied: restored };
+        },
+        release: () => {
+          state = "finalized";
+        },
+        finalize: () => {
+          if (state === "finalized") return null;
+          const current = isCurrent();
+          if (staged) {
+            persist({
+              ...staged.baseDraft,
+              editorStateJson: undefined,
+              mention: undefined,
+              ...staged.content,
+            });
+            contentRevision.current += 1;
+            staged = null;
+          }
+          const expectedRevision =
+            state === "claimed" ? claimedRevision : state === "restored" ? restoredRevision : null;
+          const finalized =
+            expectedRevision !== null && contentRevision.current === expectedRevision;
+          if (finalized) {
+            persist({ ...baseDraft, text: "", editorStateJson: undefined, mention: undefined });
+            contentRevision.current += 1;
+          }
+          state = "finalized";
+          clearPending();
+          return { current, applied: finalized };
+        },
+      };
+    },
+    persistComposerContent: (content: TestComposerDraftContent) => {
+      // 与生产一致：persist 先经过 staged buffer，再合并落盘。
+      staged = { baseDraft: liveDraft, content };
+      contentRevision.current += 1;
+      persist({ ...baseDraft, ...content });
+      clearPending();
+    },
+    updateComposerContent: (content: TestComposerDraftContent) => {
+      persist({ ...baseDraft, editorStateJson: undefined, mention: undefined, ...content });
+      contentRevision.current += 1;
+    },
+    replaceComposerDraft: (draft: Omit<V4ComposerDraft, "updatedAt">) => {
+      persist({ ...draft });
+      contentRevision.current += 1;
+    },
+  };
+}
+
 function renderComposerElement(
   onSendText: (text: string, options?: unknown) => Promise<ConversationComposerSendResult | void>,
   sessionId: string | null,
@@ -320,6 +467,15 @@ function renderComposerElement(
       ownedDraft = { ...ownedDraft, ...content };
       persistV4ComposerDraft("/workspace", undefined, scopeId, ownedDraft);
     });
+  // 修复依据：上游 v3.17.2 ConversationComposer 必需 props 扩展为完整草稿 owner API；
+  // 测试自持 owner 以与 useDraftConfigControl 相同的语义接管全部草稿写入。
+  const contentControl = createComposerContentControl({
+    scopeId,
+    initialDraft: ownedDraft,
+    write: (draft) => {
+      persistOwnedContent(draft);
+    },
+  });
   return createElement(
     ZCodeIntlProvider,
     { initialLocale: "zh-CN" },
@@ -331,11 +487,14 @@ function renderComposerElement(
       createSubmissionFromComposer,
       submissionReady,
       composerDraft: ownedDraft,
-      updateComposerContent: persistOwnedContent,
-      replaceComposerDraft: (next) => {
-        ownedDraft = { ...next, updatedAt: Date.now() };
-        persistV4ComposerDraft("/workspace", undefined, scopeId, ownedDraft);
-      },
+      composerDraftScopeToken: contentControl.composerDraftScopeToken,
+      stageComposerContent: contentControl.stageComposerContent,
+      captureComposerContentLifecycleCommit: contentControl.captureComposerContentLifecycleCommit,
+      captureComposerSubmissionDraftTransaction:
+        contentControl.captureComposerSubmissionDraftTransaction,
+      persistComposerContent: contentControl.persistComposerContent,
+      updateComposerContent: contentControl.updateComposerContent,
+      replaceComposerDraft: contentControl.replaceComposerDraft,
       onStop: vi.fn(),
       onSwitchMode: vi.fn(),
       provider: undefined,
@@ -878,6 +1037,9 @@ function mountRemountSession(
 ) {
   const container = existingContainer ?? installMinimalDom();
   const root: Root = createRoot(container);
+  // 修复依据：上游 v3.17.2 Composer 草稿 owner API 扩展（见 createComposerContentControl）；
+  // remount 场景同样把 owner.update 作为唯一写入口，由 renderComposerElement 内部的
+  // contentControl 以与 useDraftConfigControl 相同的语义调度。
   act(() => {
     root.render(
       renderComposerElement(
@@ -1022,8 +1184,14 @@ describe("ConversationComposer settles submissions across pane remount (R3A-B-07
 
     await applyAuthoritativeSnapshot();
     expect(inputClear).not.toHaveBeenCalled();
+    // 修复依据：上游 v3.17.2 输入热路径改为 stageComposerContent 暂存 + 350ms debounce 落盘，
+    // onChange 不再同步写 owner 草稿；新正文在卸载时经 captureComposerContentLifecycleCommit
+    // 落盘。因此在卸载 flush 后验证草稿保留了新输入，而不是在权威投影到达时立即读 owner。
+    await act(async () => {
+      remounted.unmount();
+      await flushAsyncWork();
+    });
     expect(owner.draft.text).toBe(`${REMOUNT_TEXT} 补充`);
-    await act(async () => remounted.unmount());
   });
 
   it("命令以失败终态收口时，重挂后的 composer 保留正文供用户重试", async () => {

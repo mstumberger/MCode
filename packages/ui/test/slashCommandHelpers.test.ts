@@ -11,11 +11,18 @@ import {
 } from "../src/slashCommandHelpers.js";
 
 describe("slashCommandHelpers", () => {
-  it("计划模式使用本地化操作名称，旧 CLI Plan 命令不能覆盖它", () => {
+  it("计划模式统一以斜杠形式展示，旧 CLI Plan 命令不能覆盖它", () => {
+    // 修复依据：上游 v3.17.2 移除 AppSlashCommand.label，`/` 面板里的 App 命令
+    // label 固定为 `/{value}`，本地化操作名称只保留在 description 中。
     const [action] = buildAppSlashCommandSuggestions([
-      { value: "plan", label: "计划模式", description: "开启计划模式", run: () => {} },
+      { value: "plan", description: "开启计划模式", run: () => {} },
     ]);
-    expect(action).toMatchObject({ id: "app-slash:plan", value: "plan", label: "计划模式" });
+    expect(action).toMatchObject({
+      id: "app-slash:plan",
+      value: "plan",
+      label: "/plan",
+      description: "开启计划模式",
+    });
     expect(buildSlashSuggestions([{ name: "/PLAN", description: "legacy plan" }])).toEqual([]);
   });
 

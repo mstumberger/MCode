@@ -187,6 +187,9 @@ describe("service manager adapters", () => {
       "launchctl",
       "launchctl",
       "launchctl",
+      // 修复依据：上游 v3.17.2 将 `systemctl --user enable --now` 拆分为 enable 与 start
+      // 两次调用（注册失败需区分 load/start 阶段），Linux 注册多一次 systemctl。
+      "systemctl",
       "systemctl",
       "systemctl",
       "systemctl",

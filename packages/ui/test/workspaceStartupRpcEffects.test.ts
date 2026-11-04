@@ -6,7 +6,9 @@ import type { IServiceAccessor } from "@zcode/services";
 import { useEnsureWorkspaceMcpLoaded } from "@/hooks/useEnsureWorkspaceMcpLoaded.js";
 import { ServiceProvider } from "@/hooks/useServices.js";
 import { useWorkspaceTerminalTaskNotifications } from "@/hooks/useTaskNotifications.js";
-import { setMcpStoreDirectoryService, setMcpStorePlatform, useMcpStore } from "@/store/mcpStore.js";
+// 修复依据：上游 v3.17.2 移除 setMcpStoreDirectoryService，目录服务随目标一起
+// 经 ensureLoadedForWorkspace 绑定到 store 的 currentDirectoryService。
+import { setMcpStorePlatform, useMcpStore } from "@/store/mcpStore.js";
 import { DEFAULT_MCP_CONFIG } from "@/store/mcpStoreHelpers.js";
 
 const mountedRoots: Root[] = [];
@@ -155,8 +157,9 @@ function WorkspaceStartupRpcEffects({
 }
 
 beforeEach(() => {
-  setMcpStoreDirectoryService(null);
   setMcpStorePlatform(null);
+  // 修复依据：同上，绑定进入 store state，重置时一并清理 currentDirectoryService /
+  // currentAuthorityKey。
   useMcpStore.setState((state) => ({
     ...state,
     config: { ...DEFAULT_MCP_CONFIG },
@@ -165,6 +168,8 @@ beforeEach(() => {
     statusSnapshots: {},
     currentProjectPath: "",
     currentWorkspaceIdentity: undefined,
+    currentAuthorityKey: undefined,
+    currentDirectoryService: null,
     enabledStates: {},
     deletedPreloadMcpServers: new Set(),
     isConfigLoaded: false,
@@ -176,7 +181,6 @@ afterEach(() => {
   for (const root of mountedRoots.splice(0)) {
     act(() => root.unmount());
   }
-  setMcpStoreDirectoryService(null);
   delete (globalThis as { document?: unknown }).document;
   delete (globalThis as { window?: unknown }).window;
   delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: unknown }).IS_REACT_ACT_ENVIRONMENT;

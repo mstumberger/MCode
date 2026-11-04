@@ -14,28 +14,35 @@ import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.j
 import { ConversationTimeline } from "@/v4/ConversationTimeline.js";
 
 const layout = vi.hoisted(() => ({ clientHeight: 300, scrollHeight: 1200 }));
-const virtualizer = vi.hoisted(() => ({
-  getVirtualItemForOffset: vi.fn(),
-  getTotalSize: () => layout.scrollHeight,
-  getVirtualItems: () => [],
-  measurementsCache: [] as Array<{
-    end: number;
-    index: number;
-    key: string;
-    lane: number;
-    size: number;
-    start: number;
-  }>,
-  measure: vi.fn(),
-  measureElement: vi.fn(),
-  resizeItem: vi.fn(),
-  scrollOffset: null as number | null,
-  scrollRect: null as { height: number } | null,
-  scrollToIndex: vi.fn(),
-  shouldAdjustScrollPositionOnItemSizeChange: null as
-    | null
-    | ((item: { end: number; start: number }) => boolean),
-}));
+const virtualizer = vi.hoisted(() => {
+  // 修复依据：上游 v3.17.2 新增冷恢复补齐测高的 layout effect（依赖 virtualRows 引用）。
+  // 真实 tanstack virtualizer 对 getVirtualItems 结果有 memo；mock 若每次返回新 []
+  // 会让该 effect 在每次 setState 后重跑并再次 setState，触发 Maximum update depth
+  // exceeded。这里返回稳定的空数组以复刻真实 memo 语义。
+  const virtualItems: readonly [] = [];
+  return {
+    getVirtualItemForOffset: vi.fn(),
+    getTotalSize: () => layout.scrollHeight,
+    getVirtualItems: () => virtualItems,
+    measurementsCache: [] as Array<{
+      end: number;
+      index: number;
+      key: string;
+      lane: number;
+      size: number;
+      start: number;
+    }>,
+    measure: vi.fn(),
+    measureElement: vi.fn(),
+    resizeItem: vi.fn(),
+    scrollOffset: null as number | null,
+    scrollRect: null as { height: number } | null,
+    scrollToIndex: vi.fn(),
+    shouldAdjustScrollPositionOnItemSizeChange: null as
+      | null
+      | ((item: { end: number; start: number }) => boolean),
+  };
+});
 
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: () => virtualizer,

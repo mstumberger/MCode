@@ -55,9 +55,12 @@ describe("TelemetryCore final HTTP privacy boundary", () => {
       expect(JSON.parse(received[0]!).event_extra_detail).toEqual({
         login_url: "login.example.com",
       });
+      // 修复依据：上游 v3.17.2 为 message_completion / agent_step 等五类事件统一追加
+      // ui_mode 维度（上下文缺失时归为 unknown），隐私断言相应包含该字段。
       expect(JSON.parse(received[1]!).event_extra_detail).toEqual({
         error_msg: "[redacted]",
         error_type: "TOOL_EXEC_ERROR",
+        ui_mode: "unknown",
       });
       expect(received.join("\n")).not.toMatch(/FAKE_STATE|FAKE_TOKEN|FAKE_USER|Bearer|\/auth/);
       // 直接调用 Core，证明最终出网边界也会拦截绕过 UI 的不安全名称。
@@ -84,6 +87,7 @@ describe("TelemetryCore final HTTP privacy boundary", () => {
             tool_name: "Skill",
             skill_name: "unknown",
             status,
+            ui_mode: "unknown",
           });
           expect(body).not.toContain(skill_name);
         }
@@ -132,11 +136,17 @@ describe("TelemetryCore final HTTP privacy boundary", () => {
       });
       expect(fetchImpl).toHaveBeenCalledTimes(2);
       const request = fetchImpl.mock.calls[0]![1]!;
-      expect(JSON.parse(String(request.body)).event_extra_detail).toEqual({
+      // 修复依据：上游 v3.17.2 agent_step / message_completion 出网时统一追加 ui_mode
+      // （上下文缺失归为 unknown）；其余事件名不变。
+      const expectedDetail: Record<string, string> = {
         error_msg: "[redacted]",
         error_code: "E_TEST",
         skill_name: "unknown",
-      });
+      };
+      if (elementName === "agent_step" || elementName === "message_completion") {
+        expectedDetail.ui_mode = "unknown";
+      }
+      expect(JSON.parse(String(request.body)).event_extra_detail).toEqual(expectedDetail);
       expect(String(request.body)).not.toContain("FAKE_BODY_SECRET");
       expect(String(request.body)).not.toContain("FAKE_AUTH_HEADER");
       expect(request.headers).toMatchObject({ Authorization: "Bearer FAKE_AUTH_HEADER" });

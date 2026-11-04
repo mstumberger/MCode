@@ -56,8 +56,11 @@ describe("controller remote identity migration inventory", () => {
     const oldKey = "remote:ssh:old.example:22:alice:/srv/project";
     const newKey = "remote:server:3cd4f9da-cd79-426c-9d70-75f36e9f6a87:/srv/project";
     const db = new DatabaseSync(dbPath);
+    // 修复依据：上游 v3.17.2 迁移清单新增 session_creation_commands 表（workspace_key 也要换钥），
+    // fixture 补建该表并插入一行，保证 before/after 清点覆盖全部 9 张表。
     db.exec(`
       CREATE TABLE tasks (workspace_key TEXT, workspace_identity TEXT, workspace_path TEXT, task_id TEXT, updated_at INTEGER, meta_json TEXT, PRIMARY KEY(workspace_key, task_id));
+      CREATE TABLE session_creation_commands (workspace_key TEXT NOT NULL, client_id TEXT NOT NULL, command_id TEXT NOT NULL, session_id TEXT NOT NULL, PRIMARY KEY (workspace_key, client_id, command_id));
       CREATE TABLE task_group_members (workspace_key TEXT, workspace_identity TEXT, task_id TEXT, PRIMARY KEY(workspace_key, task_id));
       CREATE TABLE task_group_workspace_bootstraps (workspace_key TEXT PRIMARY KEY, group_id TEXT);
       CREATE TABLE task_group_view_node_orders (node_type TEXT, node_key TEXT, sort_order INTEGER, PRIMARY KEY(node_type, node_key));
@@ -70,6 +73,9 @@ describe("controller remote identity migration inventory", () => {
       oldKey,
       JSON.stringify({ taskId: "task-1", workspaceIdentity: oldKey }),
     );
+    db.prepare(
+      "INSERT INTO session_creation_commands VALUES (?, 'client-1', 'command-1', 'session-1')",
+    ).run(oldKey);
     db.exec(TASK_GROUP_ADMISSIONS_SQL);
     db.prepare(
       "INSERT INTO task_group_admissions(workspace_key,task_id,user_organized,creation_id) VALUES (?, 'task-1', 1, 'created')",
@@ -93,10 +99,12 @@ describe("controller remote identity migration inventory", () => {
     });
 
     expect(report.status).toBe("completed");
-    expect(Object.values(report.before)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
+    // 修复依据：上游 v3.17.2 清单含 9 张表（新增 session_creation_commands）。
+    expect(Object.values(report.before)).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1]);
     const verify = new DatabaseSync(dbPath);
     for (const table of [
       "tasks",
+      "session_creation_commands",
       "task_group_members",
       "task_group_admissions",
       "task_group_workspace_bootstraps",
@@ -138,8 +146,9 @@ describe("controller remote identity migration inventory", () => {
       migrationId: "migration-2",
       now: () => 200,
     });
-    expect(Object.values(repeated.before)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
-    expect(Object.values(repeated.after)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
+    // 修复依据：上游 v3.17.2 清单含 9 张表（新增 session_creation_commands）。
+    expect(Object.values(repeated.before)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(Object.values(repeated.after)).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1]);
     const repeatedVerify = new DatabaseSync(dbPath);
     expect(
       repeatedVerify

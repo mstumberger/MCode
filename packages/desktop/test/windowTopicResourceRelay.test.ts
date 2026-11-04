@@ -44,11 +44,18 @@ describe("window topic resource authority", () => {
       remoteSessionId: "remote",
       trace: { traceId: "trace" },
     };
-    expect(await relay.channel.call("host", "reply", value)).toMatchObject({ status: "sent" });
-    expect(reply).toHaveBeenCalledWith(value);
+    // 修复依据：上游 v3.17.2 停用了 windowTopicResourceRelay 的默认 reply 接线
+    // （渠道工具等待插件入口接入，实现保留但 deps.reply 不再传入），因此 reply 命令
+    // 现在统一在通道层抛 "Channel reply unavailable"，无论连接是否匹配都不会触达 Bot。
+    await expect(relay.channel.call("host", "reply", value)).rejects.toThrow(
+      "Channel reply unavailable",
+    );
+    expect(reply).not.toHaveBeenCalled();
     current = other;
-    await expect(relay.channel.call("host", "reply", value)).rejects.toThrow("connection");
-    expect(reply).toHaveBeenCalledTimes(1);
+    await expect(relay.channel.call("host", "reply", value)).rejects.toThrow(
+      "Channel reply unavailable",
+    );
+    expect(reply).not.toHaveBeenCalled();
     relay.dispose();
   });
   it("rejects a request resolved to another remote connection before Bot IO", async () => {
@@ -60,7 +67,10 @@ describe("window topic resource authority", () => {
       getPeerAgentService: () => peer.get(IZCodeAgentService),
       resolveServices: () => other,
       getBots: () =>
-        ({ readTopicResource: read, validateTopicResource: validate }) as unknown as IBotsService,
+        ({
+          readTopicResource: read,
+          validateTopicResource: validate,
+        }) as unknown as IBotsService,
     });
     await expect(relay.channel.call("host", "begin", request)).rejects.toThrow("connection");
     expect(read).not.toHaveBeenCalled();
@@ -82,7 +92,12 @@ describe("window topic resource authority", () => {
           validateTopicResource: async () => undefined,
           readTopicResource: async () => {
             online = false;
-            return { kind: "file", filename: "a.txt", mimeType: "text/plain", dataBase64: "aGk=" };
+            return {
+              kind: "file",
+              filename: "a.txt",
+              mimeType: "text/plain",
+              dataBase64: "aGk=",
+            };
           },
         }) as unknown as IBotsService,
     });

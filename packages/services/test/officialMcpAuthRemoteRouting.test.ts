@@ -86,6 +86,14 @@ async function createServiceWithClients(options: {
       onRuntimeLifecycle() {
         return { dispose() {} };
       }
+      // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 协商，失败分支会调用
+      // processManager.isSharedRuntime、disposeWorkspace 会枚举 getRuntimeWorkspaces。
+      isSharedRuntime() {
+        return false;
+      }
+      getRuntimeWorkspaces() {
+        return [];
+      }
       disposeWorkspace() {}
       disposeAll() {}
       async disposeAllAndWait() {}
@@ -108,6 +116,11 @@ async function createServiceWithClients(options: {
             protocolVersion: 1,
             workspaceKey: "/workspace/app",
           };
+        }
+        // 修复依据：上游 v3.17.2 每次客户端就绪都会先发 runtimeCapabilities 能力协商；
+        // 空对象表示旧版 CLI 能力集，避免就绪屏障因未知方法失败。
+        if (method === zcodeProtocolMethods.runtimeCapabilities) {
+          return {};
         }
         throw new Error(`Unexpected request method: ${method}`);
       },

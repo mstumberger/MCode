@@ -28,7 +28,13 @@ describe("project repository contract", () => {
     const task = { workspacePath: "/old", taskId: "scheduled" };
     expect(
       repo.reserveCreatedTask({ task, projectId: project.id, additionalDirectories: ["/extra"] }),
-    ).toEqual({ workspacePath: "/old", projectId: project.id, additionalDirectories: ["/extra"] });
+    ).toEqual({
+      workspacePath: "/old",
+      projectId: project.id,
+      additionalDirectories: ["/extra"],
+      // 上游 v3.17.2 起预留结果回带 taskId。
+      taskId: "scheduled",
+    });
     expect(() =>
       repo.reserveCreatedTask({
         task: { workspacePath: "/old", taskId: "ordinary" },
@@ -170,6 +176,8 @@ describe("project repository contract", () => {
       projectId: a.id,
       workspacePath: "/a",
       additionalDirectories: ["/b"],
+      // 上游 v3.17.2 起预留结果回带 taskId。
+      taskId: "reserved",
     });
     expect(repo.readTree().tasks).toEqual([]);
     repo.moveTask({ task, projectId: b.id });

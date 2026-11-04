@@ -24,7 +24,8 @@ const remoteUiSources = [
   "../src/remote-connection/RemoteConnectionSelection.tsx",
   "../src/remote-connection/RemoteConnectionHistoryInput.tsx",
   "../src/remote-connection-flow/ui/RemoteConnectionProgress.tsx",
-  "../src/remote-connection/RemoteConnectionNavigationDot.tsx",
+  // 修复依据：上游 v3.17.2 删除了 RemoteConnectionNavigationDot 组件（当前源码无任何引用），
+  // 扫描列表同步移除该文件。
   "../src/remote-connection/EditConnectionProfileDialog.tsx",
   "../src/settings/SourceServerManagementPanel.tsx",
   "../src/settings/SourceServerUpdateActivity.tsx",

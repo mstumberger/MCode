@@ -39,6 +39,8 @@ const task = {
 const resultOf = (tasks: ProjectTask[] = []) => ({
   tree: { projects: [], tasks } as ProjectTree,
   availability: new Map(),
+  // 修复依据：上游 v3.17.2 读取结果新增 errors。
+  errors: new Map(),
   directory: { hosts: [], entries: [] },
 });
 function deferred<T>() {

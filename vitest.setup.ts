@@ -57,3 +57,12 @@ vi.mock("node:os", async (importOriginal) => {
     },
   };
 });
+
+// jsdom 没有 ResizeObserver；上游 v3.17.2 的图片预览面板挂载时依赖它。
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}

@@ -61,6 +61,10 @@ describe("系统 default 项目纠偏", () => {
       expect((await port.migrate(db, context)).applied).toEqual([
         "0006_default_workspace_tasks",
         "0007_initial_workspace_order",
+        // 上游 v3.17.2 新增迁移；对已迁移库均为幂等补结构/数据修复，不改变任务事实。
+        "0008_remote_entry_deleted_cache",
+        "0009_session_creation_commands",
+        "0010_remote_task_ownership",
       ]);
       expect(
         db.prepare("SELECT project_id FROM tasks WHERE task_id IN ('normal','archived')").all(),

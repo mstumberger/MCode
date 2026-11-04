@@ -717,6 +717,9 @@ describe("McpSettingsSection status list", () => {
       {
         headers: [],
         name: "figma",
+        // 修复依据：上游 v3.17.2 convertToZCodeAgentMcpServer 在给定 scope 时写入 DTO，
+        // OAuth 状态刷新列表因此带 scope 字段。
+        scope: "user",
         type: "http",
         url: "https://mcp.example.test/mcp",
       },

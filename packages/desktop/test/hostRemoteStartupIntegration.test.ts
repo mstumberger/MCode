@@ -195,6 +195,17 @@ describe("Window Host 的 Source 重连与数据库启动整合", () => {
         activeSessionRealtimePort: null,
         activeServices: null,
         activeHostApiNetworkTransport: null,
+        // 修复依据：上游 v3.17.2 起 InitLocal 分支记录 Main 侧浏览器身份
+        // （browserBackendIdentity = msg.browserBackendIdentity），沙箱需提供该绑定。
+        browserBackendIdentity: undefined,
+        // 修复依据：上游 v3.17.2 起 InitLocal 分支额外注册设备同步状态与
+        // Provider 预配状态服务；沙箱补充对应绑定即可让分支照常执行。
+        IDeviceSyncStateService: {},
+        createDeviceSyncStateService: () => ({}),
+        join: (...parts: string[]) => parts.join("/"),
+        getAppConfigDir: () => "/tmp",
+        IProviderProvisioningStatusService: {},
+        hostProviderProvisioningStatus: { service: {} },
         sourceServerDirectory: null,
         sourceServerArtifactPolicy: null,
         sourceServerConnectionManager: null,
@@ -284,8 +295,11 @@ describe("Window Host 的 Source 重连与数据库启动整合", () => {
       },
     ) as () => Promise<void>;
     const complete = run();
+    // 修复依据：上游 v3.17.2 起 coordinator.start 前有异步初始化步骤，"prepare" 不再同步出现；
+    // 保持原判据——数据库准备完成前不创建业务服务、启动未完成。
     expect(createLocalServices).not.toHaveBeenCalled();
-    expect(events).toEqual(["prepare"]);
+    expect(events).not.toContain("local-services");
+    expect(events).not.toContain("ready");
     finishPreparation();
     await complete;
     expect(createLocalServices).toHaveBeenCalledOnce();

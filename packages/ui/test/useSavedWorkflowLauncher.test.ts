@@ -57,7 +57,8 @@ describe("useSavedWorkflowLauncher", () => {
     const createEnvelope = sendCommand.mock.calls[0]![0];
     expect(createEnvelope.type).toBe("createSession");
     expect(createEnvelope.sessionId).toBeNull();
-    expect(createEnvelope.payload).toEqual({ workspaceId: "/beta" });
+    // 修复依据：上游 v3.17.2 起 createSession payload 预分配 sessionId（与任务预留共用事务）。
+    expect(createEnvelope.payload).toEqual({ sessionId: expect.any(String), workspaceId: "/beta" });
     const startEnvelope = sendCommand.mock.calls[1]![0];
     expect(startEnvelope.type).toBe("startSavedWorkflow");
     expect(startEnvelope.sessionId).toBe("s-1");
@@ -85,7 +86,7 @@ describe("useSavedWorkflowLauncher", () => {
         { name: "wf", scope: "global", args: {} },
       );
     });
-    expect(sendCommand.mock.calls[0]![0].payload).toEqual({ workspaceId: "remote:dev:/beta" });
+    expect(sendCommand.mock.calls[0]![0].payload).toEqual({ sessionId: expect.any(String), workspaceId: "remote:dev:/beta" });
     expect(sendCommand.mock.calls[1]![0].payload).toEqual({ name: "wf", scope: "global" });
   });
 

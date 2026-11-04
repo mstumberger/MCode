@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationTurnRenderUnit } from "@/v4/conversationTurnRenderUnits.js";
 import { splitConversationTimelineLiveTail } from "@/v4/conversationTimelineLiveTail.js";
+// 修复依据：上游 v3.17.2 起入参改为 history/tail 分区对象，先经 getConversationRowsPartition 构造。
+import { getConversationRowsPartition } from "@/v4/conversationProjectionStore.js";
 
 function unit(key: string, isRunning: boolean): ConversationTurnRenderUnit {
   return {
@@ -29,7 +31,7 @@ describe("ConversationTimeline running live tail", () => {
     const history = unit("history", false);
     const live = { ...unit("live", true), isLastTurn: true };
 
-    const result = splitConversationTimelineLiveTail([history, live]);
+    const result = splitConversationTimelineLiveTail(getConversationRowsPartition([history, live]));
 
     expect(result.virtualizedUnits).toEqual([history]);
     expect(result.liveUnit).toBe(live);
@@ -40,7 +42,7 @@ describe("ConversationTimeline running live tail", () => {
     const history = unit("history", false);
     const terminal = { ...unit("terminal", false), isLastTurn: true };
 
-    const result = splitConversationTimelineLiveTail([history, terminal]);
+    const result = splitConversationTimelineLiveTail(getConversationRowsPartition([history, terminal]));
 
     expect(result.virtualizedUnits).toEqual([history, terminal]);
     expect(result.liveUnit).toBeNull();
@@ -51,7 +53,7 @@ describe("ConversationTimeline running live tail", () => {
     const staleRunning = unit("stale-running", true);
     const terminal = { ...unit("terminal", false), isLastTurn: true };
 
-    const result = splitConversationTimelineLiveTail([staleRunning, terminal]);
+    const result = splitConversationTimelineLiveTail(getConversationRowsPartition([staleRunning, terminal]));
 
     expect(result.virtualizedUnits).toHaveLength(2);
     expect(result.liveUnit).toBeNull();

@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { SettingsScopeDevice } from "@/settings-scope/contract.js";
 
 interface SettingsScopeDeviceContextValue {
@@ -25,8 +25,11 @@ export function SettingsScopeDeviceProvider({
   userAvailable?: boolean;
   children?: ReactNode;
 }) {
+  // 修复依据：Provider 值内联对象会在每次渲染生成新引用，触发消费方重渲染；
+  // 本仓库 reactStableReferences 契约要求 provider 值 memo 化（上游 v3.17.2 引入时未遵守）。
+  const value = useMemo(() => ({ device, userAvailable }), [device, userAvailable]);
   return (
-    <SettingsScopeDeviceContext.Provider value={{ device, userAvailable }}>
+    <SettingsScopeDeviceContext.Provider value={value}>
       {children}
     </SettingsScopeDeviceContext.Provider>
   );

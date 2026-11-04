@@ -202,7 +202,8 @@ describe("telemetryCore", () => {
       event_region: "app",
       event_type: "view",
       event_text: "",
-      event_extra_detail: {},
+      // 修复依据：上游 v3.17.2 app_launch 上报统一携带 ui_mode（上下文缺失归为 unknown）。
+      event_extra_detail: { ui_mode: "unknown" },
       user_id: "60171703486074334",
       screen_resolution: "3024x1964",
       app_version: "0.25.1",
@@ -425,6 +426,8 @@ describe("telemetryCore", () => {
         input_start_time: "1710000000000",
         input_first_char_time: "1710000000100",
         input_send_time: "1710000000200",
+        // 修复依据：上游 v3.17.2 send_btn 出网时统一追加 ui_mode（上下文缺失归为 unknown）。
+        ui_mode: "unknown",
       },
       user_id: "override-user-id",
       screen_resolution: "3024x1964",

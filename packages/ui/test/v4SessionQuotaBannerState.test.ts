@@ -7,7 +7,11 @@ import {
   resolveQuotaBannerUpgradeProviderId,
   shouldOfferQuotaBannerUpgrade,
 } from "@/v4/sessionQuotaBannerState.js";
-import { resolveMcpUnavailableNotice } from "@/v4/mcpUnavailableBannerNotice.js";
+// 修复依据：上游 v3.17.2 把 MCP 不可用事实扫描从 resolveMcpUnavailableNotice(rows)
+// 重命名为 resolveMcpUnavailableNoticeInPartition(partition)，入参改为 rows 分区
+// （history ++ tail 按引用缓存，流式帧常数开销）；rows == null 对应 partition == null。
+import { resolveMcpUnavailableNoticeInPartition } from "@/v4/mcpUnavailableBannerNotice.js";
+import { getConversationRowsPartition } from "@/v4/conversationProjectionStore.js";
 import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 
 function entitlement(params: {
@@ -186,14 +190,16 @@ describe("V4 session quota banner state", () => {
         },
       }) as unknown as ConversationRow;
 
-    expect(resolveMcpUnavailableNotice(undefined)).toBeNull();
-    expect(resolveMcpUnavailableNotice([toolRow(1)])).toBeNull();
+    expect(resolveMcpUnavailableNoticeInPartition(null)).toBeNull();
+    expect(resolveMcpUnavailableNoticeInPartition(getConversationRowsPartition([toolRow(1)]))).toBeNull();
     expect(
-      resolveMcpUnavailableNotice([
-        toolRow(1, { code: "quota_exceeded" }),
-        toolRow(2),
-        toolRow(3, { code: "quota_exceeded" }),
-      ]),
+      resolveMcpUnavailableNoticeInPartition(
+        getConversationRowsPartition([
+          toolRow(1, { code: "quota_exceeded" }),
+          toolRow(2),
+          toolRow(3, { code: "quota_exceeded" }),
+        ]),
+      ),
     ).toEqual({
       code: "quota_exceeded",
       rowId: 3,
@@ -226,16 +232,20 @@ describe("V4 session quota banner state", () => {
       }) as unknown as ConversationRow;
 
     expect(
-      resolveMcpUnavailableNotice([
-        toolRow(1, "official", "search_image", { code: "quota_exceeded" }),
-        toolRow(2, "official", "search_image"),
-      ]),
+      resolveMcpUnavailableNoticeInPartition(
+        getConversationRowsPartition([
+          toolRow(1, "official", "search_image", { code: "quota_exceeded" }),
+          toolRow(2, "official", "search_image"),
+        ]),
+      ),
     ).toBeNull();
     expect(
-      resolveMcpUnavailableNotice([
-        toolRow(1, "official", "search_image", { code: "quota_exceeded" }),
-        toolRow(2, "official", "speech_synthesize"),
-      ]),
+      resolveMcpUnavailableNoticeInPartition(
+        getConversationRowsPartition([
+          toolRow(1, "official", "search_image", { code: "quota_exceeded" }),
+          toolRow(2, "official", "speech_synthesize"),
+        ]),
+      ),
     ).toMatchObject({ rowId: 1, toolName: "search_image" });
   });
 

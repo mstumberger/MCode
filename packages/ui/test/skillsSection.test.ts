@@ -58,33 +58,41 @@ vi.mock("react", async () => {
   };
 });
 
-vi.mock("lucide-react", () => ({
-  AlertTriangle: (props: Record<string, unknown>) => createElement("svg", props),
-  ChevronDown: (props: Record<string, unknown>) => createElement("svg", props),
-  ChevronDownIcon: (props: Record<string, unknown>) => createElement("svg", props),
-  ChevronRight: (props: Record<string, unknown>) => createElement("svg", props),
-  ChevronUpIcon: (props: Record<string, unknown>) => createElement("svg", props),
-  CheckIcon: (props: Record<string, unknown>) => createElement("svg", props),
-  Download: (props: Record<string, unknown>) => createElement("svg", props),
-  ExternalLink: (props: Record<string, unknown>) => createElement("svg", props),
-  Folder: (props: Record<string, unknown>) => createElement("svg", props),
-  Import: (props: Record<string, unknown>) => createElement("svg", props),
-  SquareArrowRightEnter: (props: Record<string, unknown>) => createElement("svg", props),
-  LayersPlus: (props: Record<string, unknown>) => createElement("svg", props),
-  Loader2: (props: Record<string, unknown>) => createElement("svg", props),
-  Loader2Icon: (props: Record<string, unknown>) => createElement("svg", props),
-  MinusIcon: (props: Record<string, unknown>) => createElement("svg", props),
-  MoreHorizontal: (props: Record<string, unknown>) => createElement("svg", props),
-  Plus: (props: Record<string, unknown>) => createElement("svg", props),
-  RefreshCcw: (props: Record<string, unknown>) => createElement("svg", props),
-  Cable: (props: Record<string, unknown>) => createElement("svg", props),
-  Search: (props: Record<string, unknown>) => createElement("svg", props),
-  Settings2: (props: Record<string, unknown>) => createElement("svg", props),
-  Trash2: (props: Record<string, unknown>) => createElement("svg", props),
-  UploadCloud: (props: Record<string, unknown>) => createElement("svg", props),
-  UserRound: (props: Record<string, unknown>) => createElement("svg", props),
-  WandSparkles: (props: Record<string, unknown>) => createElement("svg", props),
-}));
+// 修复依据：上游 v3.17.2 的 SkillsSection 引入 @/data-sync（远程技能同步入口），
+// 其模块图在模块作用域读取 lucide-react 的 LayoutDashboard 等新图标；
+// 改为 importOriginal 部分 mock，未显式替换的图标回落到真实导出，避免枚举遗漏。
+vi.mock("lucide-react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("lucide-react")>();
+  const stubIcon = (props: Record<string, unknown>) => createElement("svg", props);
+  return {
+    ...actual,
+    AlertTriangle: stubIcon,
+    ChevronDown: stubIcon,
+    ChevronDownIcon: stubIcon,
+    ChevronRight: stubIcon,
+    ChevronUpIcon: stubIcon,
+    CheckIcon: stubIcon,
+    Download: stubIcon,
+    ExternalLink: stubIcon,
+    Folder: stubIcon,
+    Import: stubIcon,
+    SquareArrowRightEnter: stubIcon,
+    LayersPlus: stubIcon,
+    Loader2: stubIcon,
+    Loader2Icon: stubIcon,
+    MinusIcon: stubIcon,
+    MoreHorizontal: stubIcon,
+    Plus: stubIcon,
+    RefreshCcw: stubIcon,
+    Cable: stubIcon,
+    Search: stubIcon,
+    Settings2: stubIcon,
+    Trash2: stubIcon,
+    UploadCloud: stubIcon,
+    UserRound: stubIcon,
+    WandSparkles: stubIcon,
+  };
+});
 
 vi.mock("@/components/ui/button.js", () => ({
   Button: ({ children, ...props }: { children: unknown; [key: string]: unknown }) => {
@@ -267,8 +275,12 @@ vi.mock("@/store/zcodeSessionStore.js", () => ({
   ),
 }));
 
+// 修复依据：上游 v3.17.2 同步按钮由 useSettingsDataSyncEntry 驱动，
+// available 取决于 useOptionalPlatform().requestSourceSettingsAttachment，
+// 这里改为可配置以便覆盖远端设备同步入口用例。
+let mockOptionalPlatform: Record<string, unknown> | null = null;
 vi.mock("@/hooks/usePlatform.js", () => ({
-  useOptionalPlatform: () => null,
+  useOptionalPlatform: () => mockOptionalPlatform,
   usePlatform: () => ({
     openInFileManager: openInFileManagerMock,
   }),
@@ -380,7 +392,7 @@ vi.mock("@/lib/providerCliIcon.js", () => ({
   renderProviderCliIcon: () => createElement("span", null, "icon"),
 }));
 
-async function renderSkillsSection() {
+async function renderSkillsSection(extraProps: Record<string, unknown> = {}) {
   useStateCallCount = 0;
   mockLoadedSkillTargetKeyState = activeWorkspaceIdentity?.trim() || activeWorkspacePath || "";
   const { SkillsSection } = await import("../src/settings/SkillsSection.js");
@@ -393,6 +405,7 @@ async function renderSkillsSection() {
       scopeFilter: activeScopeFilter,
       searchQuery: "",
       onCreateTask: onCreateTaskMock,
+      ...extraProps,
     }),
   );
 }
@@ -445,6 +458,8 @@ describe("SkillsSection", () => {
     activeRemoteTarget = undefined;
     activeScopeFilter = "workspace";
     useStateCallCount = 0;
+    // 修复依据：上游 v3.17.2 useOptionalPlatform 参与 data-sync 入口能力判断，逐用例重置。
+    mockOptionalPlatform = null;
   });
 
   afterEach(() => {
@@ -479,6 +494,14 @@ describe("SkillsSection", () => {
     const html = await renderSkillsSection();
 
     expect(html).toContain("dev.example.com");
+    // 修复依据：上游 v3.17.2 同步按钮不再由已连接工作区驱动，
+    // 改由 scope 菜单选中远端设备（dataSyncSourceServerId）+ 平台 attachment 能力决定；
+    // 仅连接 SSH 工作区时只显示远端标签，不渲染同步按钮。
+    expect(findButton("Sync Skill")).toBeUndefined();
+
+    mockOptionalPlatform = { requestSourceSettingsAttachment: vi.fn() };
+    capturedButtons.length = 0;
+    await renderSkillsSection({ dataSyncSourceServerId: "remote-device-1" });
     expect(findButton("Sync Skill")).toBeTruthy();
   });
 
@@ -496,6 +519,12 @@ describe("SkillsSection", () => {
 
     expect(html).toContain("WSL");
     expect(html).toContain("Ubuntu");
+    // 修复依据：同上，WSL 连接本身只显示远端标签，同步按钮需要 dataSyncSourceServerId。
+    expect(findButton("Sync Skill")).toBeUndefined();
+
+    mockOptionalPlatform = { requestSourceSettingsAttachment: vi.fn() };
+    capturedButtons.length = 0;
+    await renderSkillsSection({ dataSyncSourceServerId: "remote-device-wsl" });
     expect(findButton("Sync Skill")).toBeTruthy();
   });
 

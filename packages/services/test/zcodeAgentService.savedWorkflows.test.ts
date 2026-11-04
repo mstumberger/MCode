@@ -7,8 +7,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { zcodeProtocolMethods } from "@zcode/shared";
 
 async function createServiceWithRequest(request: ReturnType<typeof vi.fn>) {
+  // 修复依据：上游 v3.17.2 客户端就绪阶段新增 runtimeCapabilities 能力协商（空对象表示
+  // 旧版 CLI），且其失败分支会调用 processManager.isSharedRuntime；本文件断言的是 workflows
+  // 方法形状，能力协商在 harness 层统一应答，不进入各用例的 request 断言。
+  const clientRequest = vi.fn(async (method: string, params?: unknown, schema?: unknown) => {
+    if (method === zcodeProtocolMethods.runtimeCapabilities) {
+      return {};
+    }
+    return request(method, params, schema);
+  });
   const getClient = vi.fn(async () => ({
-    request,
+    request: clientRequest,
     transportKind: "stdio" as const,
     onNotification: () => ({ dispose() {} }),
     onRequest: () => ({ dispose() {} }),
@@ -23,6 +32,14 @@ async function createServiceWithRequest(request: ReturnType<typeof vi.fn>) {
       }
       onRuntimeRestarted() {
         return { dispose() {} };
+      }
+      // 修复依据：上游 v3.17.2 就绪失败分支调用 isSharedRuntime；disposeWorkspace 枚举
+      // getRuntimeWorkspaces。mock 无共享绑定，返回 false / 空数组即可。
+      isSharedRuntime() {
+        return false;
+      }
+      getRuntimeWorkspaces() {
+        return [];
       }
       disposeAll() {}
     },

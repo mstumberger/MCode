@@ -19,9 +19,13 @@ vi.mock("@zcode/ui", () => ({
 describe("createHomeOnlyWebRemoteControlServices", () => {
   it("absorbs disconnected mobile home initialization with safe empty results", async () => {
     vi.stubGlobal("localStorage", { getItem: () => null });
+    // 修复依据：上游 v3.17.2 新增 pluginUiPageRegistry 在模块加载期读取 document.hidden
+    // 并注册 visibilitychange 监听，document stub 需补齐这两个成员。
     vi.stubGlobal("document", {
       documentElement: { classList: { toggle: vi.fn() } },
       getElementById: vi.fn(() => ({ nodeType: 1 })),
+      hidden: true,
+      addEventListener: vi.fn(),
     });
     vi.stubGlobal("window", {
       addEventListener: vi.fn(),
@@ -83,9 +87,13 @@ describe("createHomeOnlyWebRemoteControlServices", () => {
 
   it("provides a real broadcast disposable for disconnected mobile home effects", async () => {
     vi.stubGlobal("localStorage", { getItem: () => null });
+    // 修复依据：上游 v3.17.2 新增 pluginUiPageRegistry 在模块加载期读取 document.hidden
+    // 并注册 visibilitychange 监听，document stub 需补齐这两个成员。
     vi.stubGlobal("document", {
       documentElement: { classList: { toggle: vi.fn() } },
       getElementById: vi.fn(() => ({ nodeType: 1 })),
+      hidden: true,
+      addEventListener: vi.fn(),
     });
     vi.stubGlobal("window", {
       addEventListener: vi.fn(),
@@ -106,9 +114,13 @@ describe("createHomeOnlyWebRemoteControlServices", () => {
 
   it("returns synchronous empty events for unlisted dynamic subscriptions", async () => {
     vi.stubGlobal("localStorage", { getItem: () => null });
+    // 修复依据：上游 v3.17.2 新增 pluginUiPageRegistry 在模块加载期读取 document.hidden
+    // 并注册 visibilitychange 监听，document stub 需补齐这两个成员。
     vi.stubGlobal("document", {
       documentElement: { classList: { toggle: vi.fn() } },
       getElementById: vi.fn(() => ({ nodeType: 1 })),
+      hidden: true,
+      addEventListener: vi.fn(),
     });
     vi.stubGlobal("window", {
       addEventListener: vi.fn(),

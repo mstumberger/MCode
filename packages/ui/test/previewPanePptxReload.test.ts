@@ -45,6 +45,9 @@ vi.mock("@/hooks/useFileContextActions.js", () => ({
   useFileContextActions: () => ({
     copyAbsolutePath: vi.fn(),
     copyRelativePath: vi.fn(),
+    // 修复依据：上游 v3.17.2 起 OpenSplitButton 还会查询文件管理器定位能力。
+    canRevealInFileManager: () => false,
+    revealFileInFileManager: vi.fn(),
   }),
 }));
 

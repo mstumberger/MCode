@@ -58,7 +58,9 @@ describe("MiMo API 与 Token Plan 官方模板", () => {
               baseUrl,
             });
             expect(model.validateComplete()).toEqual([]);
-            expect(model.enabled).toBe(true);
+            // 修复依据：上游 v3.17.2 的 templateModelRules 将 mimo-v2.5 / mimo-v2.5-pro 默认停用
+            // （保留在 xiaomi-mimo 的 builtinModelIds 中供旧实例使用），仅 v2.6 系列默认启用。
+            expect(model.enabled).toBe(currentModelIds.includes(modelId));
             expect(model.properties?.contextWindow).toBe(1000000);
             expect(model.properties?.inputFormat.toJSON()).toMatchObject({
               supportsImage: modelId !== "mimo-v2.5-pro",
@@ -134,9 +136,9 @@ describe("MiMo API 与 Token Plan 官方模板", () => {
             (p) => p.providerId === `new-${templateId}`,
           );
           expect(provider?.config.api?.baseUrl).toBe(baseUrl);
-          expect(provider?.models.map((m) => m.modelId)).toEqual(
-            templateId === "xiaomi-mimo" ? apiModelIds : currentModelIds,
-          );
+          // 修复依据：上游 v3.17.2 起默认停用的模板模型不再进入 registryProviders.models
+          // （resolver 只发布 executable 模型）；v2.5 旧模型仅保留在模板 builtinModelIds 中。
+          expect(provider?.models.map((m) => m.modelId)).toEqual(currentModelIds);
           expect(provider?.config.access?.toJSON()).toMatchObject({
             apiKey: `test-${templateId}`,
           });

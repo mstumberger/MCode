@@ -53,7 +53,6 @@ describe("Built-in 共用 URL 下载边界", () => {
     3,
     {},
     "",
-    "http://cdn.example/a",
     "https://user:secret@cdn.example/a",
     "file:///tmp/a",
     '{"revision":7}',
@@ -63,6 +62,20 @@ describe("Built-in 共用 URL 下载边界", () => {
       /client-config/,
     );
     expect(request).toHaveBeenCalledTimes(1);
+  });
+  it("内网 http 配置地址合法并进入第二阶段下载", async () => {
+    // 修复依据：上游 v3.17.2 的 clientConfigSchema 不再按产品环境拒绝 http
+    // （内网与测试部署同样提供 HTTP 配置地址），http CDN 地址会继续第二阶段 fetch。
+    const httpCdn = "http://cdn.example/a";
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(envelope(httpCdn)))
+      .mockResolvedValueOnce(new Response(JSON.stringify(release)));
+    await expect(downloadZCodeBuiltinRelease({ ...input, request })).resolves.toMatchObject({
+      revision: 7,
+    });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(String(request.mock.calls[1][0])).toBe(httpCdn);
   });
   it("缺省与旧内联字段不下载、不当清空", async () => {
     const request = vi.fn(

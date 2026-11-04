@@ -173,16 +173,22 @@ vi.mock("@/lib/rootStartupGate.js", () => ({
   }) => Boolean(isDesktop) && !welcomeScreenOpen && mockShouldBlockRootRender(),
 }));
 
-vi.mock("@/store/StoreProvider.js", () => ({
-  StoreProvider: ({ children }: { children: unknown }) => children,
-  useZCodeStoreWithDefault: () => true,
-  useZCodeStore: (selector: (state: unknown) => unknown) =>
-    selector({
-      user: null,
-      setUser: mockSetUser,
-      setOAuthError: mockSetOAuthError,
-    }),
-}));
+// 修复依据：上游 v3.17.2 的 useInterfaceModeTelemetry（Root 挂载）从
+// @/store/StoreProvider.js 读取 StoreContext，mock 需补一个真实 React context。
+vi.mock("@/store/StoreProvider.js", async () => {
+  const { createContext } = await vi.importActual<typeof import("react")>("react");
+  return {
+    StoreContext: createContext(null),
+    StoreProvider: ({ children }: { children: unknown }) => children,
+    useZCodeStoreWithDefault: () => true,
+    useZCodeStore: (selector: (state: unknown) => unknown) =>
+      selector({
+        user: null,
+        setUser: mockSetUser,
+        setOAuthError: mockSetOAuthError,
+      }),
+  };
+});
 
 vi.mock("@/store/zcodeSessionStore.js", () => ({
   useZCodeSessionStore: Object.assign(

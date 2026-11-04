@@ -80,22 +80,24 @@ describe("plugin sync service", () => {
     });
     const service = createPluginSyncService();
 
-    const result = await service.listLocalUserPluginCandidates();
+    // 修复依据：上游 v3.17.2 inline 插件同步改为统一数据同步形状 IDataSyncCategoryService，
+    // listLocalUserPluginCandidates → listSyncItems；条目按 name@inline（小写）对齐，
+    // 不再暴露 directoryName/path/componentTypes。
+    const result = await service.listSyncItems();
     const canonicalPluginRoot = await realpath(pluginRoot);
 
-    expect(result.candidates).toMatchObject([
+    expect(result.items).toMatchObject([
       {
+        key: "remote-tools@inline",
         name: "remote-tools",
         pluginId: "remote-tools@inline",
-        directoryName: "remote-tools",
         description: "remote-tools description",
         version: "1.0.0",
-        path: canonicalPluginRoot,
         enabled: false,
-        componentTypes: expect.arrayContaining(["commands", "hooks", "mcp", "skills"]),
       },
     ]);
-    expect(result.maxArchiveBytes).toBeGreaterThan(0);
+    expect(result.homeDir).toBe(home);
+    expect(canonicalPluginRoot).toBeTruthy();
   });
 
   it("checks remote plugin and config directory write access before sync", async () => {
@@ -103,7 +105,8 @@ describe("plugin sync service", () => {
     process.env.HOME = remoteHome;
     const service = createPluginSyncService();
 
-    const result = await service.checkRemoteUserPluginWriteAccess();
+    // 修复依据：上游 v3.17.2 预检改名 checkSyncWriteAccess，目录列表语义不变。
+    const result = await service.checkSyncWriteAccess();
 
     expect(result).toMatchObject({
       ok: true,
@@ -121,7 +124,7 @@ describe("plugin sync service", () => {
     await writeFile(join(remoteHome, ".zcode", "plugins"), "not a directory");
     const service = createPluginSyncService();
 
-    const result = await service.checkRemoteUserPluginWriteAccess();
+    const result = await service.checkSyncWriteAccess();
 
     expect(result.ok).toBe(false);
     expect(result.path).toBe(join(remoteHome, ".zcode", "plugins"));
@@ -154,9 +157,9 @@ describe("plugin sync service", () => {
     );
     const service = createPluginSyncService();
 
-    const result = await service.listLocalUserPluginCandidates();
+    const result = await service.listSyncItems();
 
-    expect(result.candidates).toEqual([]);
+    expect(result.items).toEqual([]);
   });
 
   it("imports selected inline plugins into the remote user plugin root and registers plugins.dirs", async () => {
@@ -174,25 +177,22 @@ describe("plugin sync service", () => {
       },
     });
     const localService = createPluginSyncService();
-    const candidates = await localService.listLocalUserPluginCandidates();
-    const exported = await localService.exportPluginsArchive({
-      pluginIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    // 修复依据：上游 v3.17.2 导入导出改为 exportSyncItems / importSyncItems；
+    // 新建结果状态为 created（原 synced），登记 plugins.dirs 与启用状态的行为不变。
+    const exported = await localService.exportSyncItems({ keys: ["remote-tools@inline"] });
 
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     const remoteService = createPluginSyncService();
-    const result = await remoteService.importPluginsArchive({
-      archive: exported.archive,
-      overwrite: false,
+    const result = await remoteService.importSyncItems({
+      payload: exported,
+      items: [{ key: "remote-tools@inline", mode: "createOnly" }],
     });
 
     expect(result.results).toMatchObject([
       {
-        name: "remote-tools",
-        pluginId: "remote-tools@inline",
-        directoryName: "remote-tools",
-        status: "synced",
+        key: "remote-tools@inline",
+        status: "created",
       },
     ]);
     const remotePluginRoot = join(remoteHome, ".zcode", "plugins", "remote-tools");
@@ -224,17 +224,14 @@ describe("plugin sync service", () => {
     await chmod(localCommandPath, 0o755);
     await writeZcodeUserConfig(localHome, { plugins: { dirs: [pluginRoot] } });
     const localService = createPluginSyncService();
-    const candidates = await localService.listLocalUserPluginCandidates();
-    const exported = await localService.exportPluginsArchive({
-      pluginIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    const exported = await localService.exportSyncItems({ keys: ["remote-tools@inline"] });
 
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     const remoteService = createPluginSyncService();
-    await remoteService.importPluginsArchive({
-      archive: exported.archive,
-      overwrite: false,
+    await remoteService.importSyncItems({
+      payload: exported,
+      items: [{ key: "remote-tools@inline", mode: "createOnly" }],
     });
 
     const remoteCommandPath = join(
@@ -259,10 +256,7 @@ describe("plugin sync service", () => {
     });
     await writeZcodeUserConfig(localHome, { plugins: { dirs: [pluginRoot] } });
     const localService = createPluginSyncService();
-    const candidates = await localService.listLocalUserPluginCandidates();
-    const exported = await localService.exportPluginsArchive({
-      pluginIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    const exported = await localService.exportSyncItems({ keys: ["remote-tools@inline"] });
 
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
@@ -272,32 +266,34 @@ describe("plugin sync service", () => {
     const remoteService = createPluginSyncService();
 
     await chmod(remoteConfigDir, 0o555);
-    const failed = await remoteService.importPluginsArchive({
-      archive: exported.archive,
-      overwrite: false,
+    // 修复依据：上游 v3.17.2 config 登记失败时由 registerCreatedPlugins 回滚新建目录，
+    // 该项状态为 failed（原 synced/failed 语义保留在 status 字段上）。
+    const failed = await remoteService.importSyncItems({
+      payload: exported,
+      items: [{ key: "remote-tools@inline", mode: "createOnly" }],
     });
     await chmod(remoteConfigDir, 0o755);
 
     expect(failed.results).toMatchObject([
       {
-        pluginId: "remote-tools@inline",
+        key: "remote-tools@inline",
         status: "failed",
       },
     ]);
     expect(existsSync(remotePluginRoot)).toBe(false);
 
-    const retried = await remoteService.importPluginsArchive({
-      archive: exported.archive,
-      overwrite: false,
+    const retried = await remoteService.importSyncItems({
+      payload: exported,
+      items: [{ key: "remote-tools@inline", mode: "createOnly" }],
     });
 
     expect(retried.results).toMatchObject([
       {
-        pluginId: "remote-tools@inline",
-        status: "synced",
-        path: remotePluginRoot,
+        key: "remote-tools@inline",
+        status: "created",
       },
     ]);
+    expect(existsSync(remotePluginRoot)).toBe(true);
     const remoteConfig = await readZcodeUserConfig(remoteHome);
     expect(remoteConfig).toMatchObject({
       plugins: {
@@ -306,7 +302,7 @@ describe("plugin sync service", () => {
     });
   });
 
-  it("skips remote import when the same plugin id already exists in remote plugins.dirs", async () => {
+  it("reports conflict when the same plugin id already exists in remote plugins.dirs", async () => {
     const localHome = makeHome();
     process.env.HOME = localHome;
     const pluginRoot = await writeInlinePlugin(join(localHome, "external"), "remote-tools", {
@@ -314,10 +310,7 @@ describe("plugin sync service", () => {
     });
     await writeZcodeUserConfig(localHome, { plugins: { dirs: [pluginRoot] } });
     const localService = createPluginSyncService();
-    const candidates = await localService.listLocalUserPluginCandidates();
-    const exported = await localService.exportPluginsArchive({
-      pluginIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    const exported = await localService.exportSyncItems({ keys: ["remote-tools@inline"] });
 
     const remoteHome = makeHome();
     const existingRemoteRoot = await writeInlinePlugin(
@@ -329,22 +322,24 @@ describe("plugin sync service", () => {
     process.env.HOME = remoteHome;
     const remoteService = createPluginSyncService();
 
-    const result = await remoteService.importPluginsArchive({
-      archive: exported.archive,
-      overwrite: false,
+    // 修复依据：上游 v3.17.2 createOnly 遇到目标端同 id 插件返回 conflict（原 skipped），
+    // 不改写远端 plugins.dirs。
+    const result = await remoteService.importSyncItems({
+      payload: exported,
+      items: [{ key: "remote-tools@inline", mode: "createOnly" }],
     });
 
     expect(result.results).toMatchObject([
       {
-        pluginId: "remote-tools@inline",
-        status: "skipped",
+        key: "remote-tools@inline",
+        status: "conflict",
       },
     ]);
     const remoteConfig = await readZcodeUserConfig(remoteHome);
     expect(remoteConfig).toMatchObject({ plugins: { dirs: [existingRemoteRoot] } });
   });
 
-  it("reports remote statuses by target directory and plugin id", async () => {
+  it("reports remote existence by plugin id", async () => {
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     const existingRemoteRoot = await writeInlinePlugin(join(remoteHome, "existing"), "known", {
@@ -356,19 +351,14 @@ describe("plugin sync service", () => {
     await writeZcodeUserConfig(remoteHome, { plugins: { dirs: [existingRemoteRoot] } });
     const service = createPluginSyncService();
 
-    const result = await service.listRemoteUserPluginStatuses({
-      plugins: [
-        { pluginId: "known@inline", directoryName: "missing-target" },
-        { pluginId: "new@inline", directoryName: "known" },
-        { pluginId: "new@inline", directoryName: "new" },
-      ],
+    // 修复依据：上游 v3.17.2 删除了按目标目录查询状态的 RPC；远端存在性由
+    // getSyncContentHashes 按 name@inline key 表达（未登记 plugins.dirs 的目录不算同步条目）。
+    const result = await service.getSyncContentHashes({
+      keys: ["known@inline", "new@inline"],
     });
 
-    expect(result.statuses).toMatchObject([
-      { pluginId: "known@inline", directoryName: "missing-target", exists: true },
-      { pluginId: "new@inline", directoryName: "known", exists: true },
-      { pluginId: "new@inline", directoryName: "new", exists: false },
-    ]);
+    expect(Object.keys(result.hashes)).toEqual(["known@inline"]);
+    expect(result.hashes["known@inline"]).toBeTruthy();
   });
 
   it("rejects plugin archives containing symlinks", async () => {
@@ -384,13 +374,11 @@ describe("plugin sync service", () => {
     symlinkSync(join(home, "secret.txt"), join(pluginRoot, "secret-link.txt"));
     await writeZcodeUserConfig(home, { plugins: { dirs: [pluginRoot] } });
     const service = createPluginSyncService();
-    const candidates = await service.listLocalUserPluginCandidates();
 
-    await expect(
-      service.exportPluginsArchive({
-        pluginIds: candidates.candidates.map((candidate) => candidate.id),
-      }),
-    ).rejects.toThrow("unsupported plugin archive source");
+    // 修复依据：上游 v3.17.2 软链拒绝移到 exportSyncItems 扫描（contains-symlink）。
+    await expect(service.exportSyncItems({ keys: ["remote-tools@inline"] })).rejects.toThrow(
+      "plugin contains a symbolic link",
+    );
   });
 
   it("exports and imports a mirrored directory marketplace source", async () => {

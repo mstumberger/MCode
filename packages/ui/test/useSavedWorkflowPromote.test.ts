@@ -63,7 +63,8 @@ describe("useSavedWorkflowPromote", () => {
     expect(payload.firstInput.text).toContain("/beta/.zcode/workflows/release-check.dwf.ts");
     expect(payload.firstInput.text).toContain('scope: "global"');
     // 不发第二条命令（不是 startSavedWorkflow）。
-    expect(Object.keys(payload)).toEqual(["workspaceId", "firstInput"]);
+    // 修复依据：上游 v3.17.2 起 createSession payload 预分配 sessionId。
+    expect(Object.keys(payload)).toEqual(["workspaceId", "firstInput", "sessionId"]);
 
     expect(onNavigate).toHaveBeenCalledWith({ workspacePath: "/beta" }, "s-1");
     expect(promoted).toEqual({ ok: true, sessionId: "s-1" });
