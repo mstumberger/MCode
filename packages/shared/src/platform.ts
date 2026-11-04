@@ -284,11 +284,15 @@ export type SaveFileRequest =
       data: ArrayBuffer;
       sourceUrl?: never;
       suggestedName: string;
+      /** 另存为对话框的缺省目录（绝对路径）；非法或相对路径时忽略，回退纯文件名行为。 */
+      defaultDirectory?: string;
     }
   | {
       data?: never;
       sourceUrl: string;
       suggestedName: string;
+      /** 对称声明使 union 可直接判别读取 defaultDirectory；远程下载分支无对话框目录概念。 */
+      defaultDirectory?: never;
     };
 
 export interface SaveFileResult {

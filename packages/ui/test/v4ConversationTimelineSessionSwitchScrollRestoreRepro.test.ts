@@ -153,7 +153,13 @@ function createMinimalElement(ownerDocument: Document, tagName = "div"): TestEle
     setAttribute: (name: string, value: string) => {
       element.__attrs.set(name, String(value));
     },
-    style: {},
+    // React 对 `--*` 自定义属性（如转录区缩放的 --ui-font-size）走 setProperty 而非
+    // 索引赋值；最小 DOM 的 style 需提供该方法，否则 react-dom 渲染内联样式即抛错。
+    style: {
+      setProperty: (name: string, value: string) => {
+        (element.style as unknown as Record<string, string>)[name] = value;
+      },
+    },
     tagName: tagName.toUpperCase(),
   };
   Object.defineProperties(element, {

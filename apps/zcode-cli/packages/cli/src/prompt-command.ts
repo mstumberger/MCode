@@ -123,6 +123,16 @@ export const runPrompt = async (
     }
     return await runLogoutCommand(ctx, options, deps);
   }
+  if (slashCommand?.type === "known" && slashCommand.name === "exit") {
+    // /exit 只在交互 TUI 有意义。headless 没有 renderer 可关，明确回提示，
+    // 而不是让字面文本落到模型路径（保留名 gate 只挡 custom 展开，不挡 prompt）。
+    ctx.stderr.write(
+      slashCommand.args.length > 0
+        ? "Usage: /exit\n"
+        : "/exit is only available in the interactive TUI.\n",
+    );
+    return slashCommand.args.length > 0 ? 1 : 0;
+  }
 
   const runtimePrompt =
     slashCommand?.type === "known" && slashCommand.name === "skill"

@@ -69,6 +69,7 @@ Slash Commands:
   /rewind [latest|checkpointId]  查看最新 checkpoint 或恢复 workspace 文件
   /skill [name] [task]  列出 skills，或强制下一次 prompt 加载某个 skill
   /goal [action]        查看或设置当前 session goal
+  /exit                 退出终端 UI（别名：/quit）
 `,
   },
   tui: {
