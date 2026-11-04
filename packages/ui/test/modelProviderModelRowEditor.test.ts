@@ -209,11 +209,10 @@ describe("ProviderModelsSection compact model rows", () => {
   // onStartEditName 挂载并聚焦名称输入框。Radix 触发器不响应 click（只认 pointerDown/键盘），
   // fake timers 下还需手动推进定时器才会派发 onCloseAutoFocus。
   async function startProviderRename(): Promise<void> {
-    console.log("[dbg] pointerDown");
+    // Radix 触发器对 pointerDown 同步开菜单（fireEvent 已包 act，内容同步挂载）；
+    // fake timers 下不能 await findBy*（waitFor 依赖真实宏任务刷新 act 队列），必须用同步查询。
     fireEvent.pointerDown(screen.getByTestId("model-provider-actions-button"));
-    console.log("[dbg] find edit item");
-    fireEvent.click(await screen.findByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
-    console.log("[dbg] wait close");
+    fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
     await act(async () => {
       if (vi.isFakeTimers()) {
         vi.advanceTimersByTime(1_000);
@@ -221,7 +220,6 @@ describe("ProviderModelsSection compact model rows", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     });
-    console.log("[dbg] assert input");
     screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
   }
 
@@ -726,8 +724,12 @@ describe("ProviderModelsSection compact model rows", () => {
     fireEvent.click(screen.getByTestId("model-provider-header"));
     fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
     expect(onSave).not.toHaveBeenCalled();
-    // 修复依据：上游 v3.17.2 起重命名输入框在菜单关闭（onCloseAutoFocus）的 setTimeout 后才挂载。
-    await startProviderRename();
+    // 修复依据：上游 v3.17.2 起重命名输入框在菜单关闭（onCloseAutoFocus）的 setTimeout 后才挂载；
+    // 上面 Enter 已打开菜单，直接点击重命名项（再 pointerDown 会把已开菜单 toggle 关闭）。
+    fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     const input = screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
     input.focus();
     fireEvent.change(input, { target: { value: "Confirmed" } });
