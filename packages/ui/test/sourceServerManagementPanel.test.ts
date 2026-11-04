@@ -39,6 +39,30 @@ vi.mock("@/hooks/usePlatform.js", () => ({
   useOptionalPlatform: () => platform,
 }));
 
+// 修复依据：上游 v3.17.2（RDUX-13）将设备行重构为折叠式 SourceServerDeviceRow，
+// 连接信息、项目列表、更新横幅与迁移提醒都渲染在展开区（data-device-details），需先点击行首切换按钮展开。
+function expandDevice(container: HTMLElement, sourceServerId?: string): void {
+  const toggle = container.querySelector(
+    sourceServerId
+      ? `[data-source-server-card="${sourceServerId}"] [data-source-server-toggle]`
+      : "[data-source-server-toggle]",
+  );
+  if (!toggle) throw new Error(`device toggle not found: ${sourceServerId ?? "<first>"}`);
+  fireEvent.click(toggle);
+}
+
+// 修复依据：上游 v3.17.2（RDUX-13）把编辑连接、断开等行内操作移入「更多」下拉菜单，
+// 菜单项为 role=menuitem（Portal 到 body），需 pointerDown 触发器打开后交互。
+function openDeviceMenu(container: HTMLElement, sourceServerId?: string): void {
+  const more = container.querySelector(
+    sourceServerId
+      ? `[data-source-server-card="${sourceServerId}"] button[aria-label="common.more"]`
+      : 'button[aria-label="common.more"]',
+  );
+  if (!more) throw new Error(`device menu trigger not found: ${sourceServerId ?? "<first>"}`);
+  fireEvent.pointerDown(more);
+}
+
 function identityPendingSnapshot(
   installState: "installed" | "uninstalled",
   pendingProfileId: string,
@@ -124,6 +148,8 @@ describe("SourceServerManagementPanel", () => {
       }),
     );
     await screen.findByText("Reinstalled server");
+    // 修复依据：上游 v3.17.2 RDUX-13 连接行与项目列表在设备展开区内。
+    expandDevice(container);
     const line = container.querySelector("[data-device-connection]")!;
     expect(line.textContent).toContain("other.example.com");
     expect(line.textContent).toContain("settings.source.currentProfile");
@@ -167,6 +193,8 @@ describe("SourceServerManagementPanel", () => {
       }),
     );
     await screen.findByText("Reinstalled server");
+    // 修复依据：上游 v3.17.2 RDUX-13 连接行在设备展开区内。
+    expandDevice(container);
     const line = container.querySelector("[data-device-connection]")!;
     expect(line.textContent).toContain("dev@preferred.example.com:22");
     expect(line.textContent).toContain("1.4.2");

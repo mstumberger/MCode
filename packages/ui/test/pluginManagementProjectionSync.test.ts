@@ -306,7 +306,7 @@ it("completes remote capability refresh while a projection listener is stuck", a
     pluginCommands: [],
     capability: { userScopeAvailable: true },
   }));
-  const mcp = vi.fn(async () => ({ servers: [] }));
+  // 修复依据：上游 v3.17.2 起该函数不再接收 mcpSyncService；MCP 目录刷新移入 mcpStore 路径。
   const operation = refreshWorkspacePluginCapabilitiesAfterRemoteSync({
     workspacePath: "/project/a",
     workspaceIdentity: "remote:server:remote-host:/project/a",
@@ -314,11 +314,9 @@ it("completes remote capability refresh while a projection listener is stuck", a
     zcodeAgentService: {} as never,
     skillsService: { list: vi.fn() } as never,
     commandsService: { list: commands } as never,
-    mcpSyncService: { loadMcpFromUserDirectory: mcp } as never,
   });
   try {
-    await vi.waitFor(() => expect(mcp).toHaveBeenCalled());
-    expect(commands).toHaveBeenCalled();
+    await vi.waitFor(() => expect(commands).toHaveBeenCalled());
   } finally {
     release?.();
     dispose();

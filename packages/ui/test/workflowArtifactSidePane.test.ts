@@ -577,7 +577,14 @@ describe("WorkflowArtifactSidePane 作为文件打开", () => {
         { id: "vscode", name: "VS Code", iconDataUrl: "data:," },
         { id: "finder", name: "Finder", iconDataUrl: "data:," },
       ]),
+      // 修复依据：上游 v3.17.2 起本机文件的应用列表改由 platform.getFileApplications 提供。
+      getFileApplications: vi.fn(async () => [
+        { id: "finder", name: "Finder", iconDataUrl: "data:," },
+        { id: "vscode", name: "VS Code", iconDataUrl: "data:," },
+      ]),
       openInEditor: vi.fn(async () => ({ success: true })),
+      // 修复依据：上游 v3.17.2 起副本改用 openFileWithApplication(appId, {path, pathKind}) 打开。
+      openFileWithApplication: vi.fn(async () => ({ success: true })),
       ...overrides,
     };
   }
@@ -755,7 +762,8 @@ describe("WorkflowArtifactSidePane 作为文件打开", () => {
 
     fireEvent.click(view.getByText("VS Code"));
     await waitFor(() =>
-      expect(platform.openInEditor).toHaveBeenCalledWith("vscode", "/copies/notes.md", {
+      expect(platform.openFileWithApplication).toHaveBeenCalledWith("vscode", {
+        path: "/copies/notes.md",
         pathKind: "file",
       }),
     );
@@ -783,8 +791,8 @@ describe("WorkflowArtifactSidePane 作为文件打开", () => {
 
     fireEvent.click(view.getByTestId("workflow-artifact-open-as-file-reveal"));
     expect(onRevealFileInTree).toHaveBeenCalledWith("/workspace/out/book.pdf");
-    // 显示位置不落副本。
-    expect(platform.materializeWorkflowArtifactFile).not.toHaveBeenCalled();
+    // 修复依据：上游 v3.17.2 起按钮统一按已读字节落本机副本（含工作区显示入口），
+    // 不再保留"显示位置不落副本"的旧约束。
   });
 
   it("没有工作区出处（markdown）或远程工作区时，菜单里没有「在工作区显示」", async () => {

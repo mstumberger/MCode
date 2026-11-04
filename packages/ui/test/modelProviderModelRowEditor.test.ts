@@ -650,8 +650,13 @@ describe("ProviderModelsSection compact model rows", () => {
         nameEditable: true,
       }),
     );
-    fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
+    // 修复依据：上游 v3.17.2 起重命名经 ⋯ 菜单触发，输入框在菜单关闭（onCloseAutoFocus）时挂载并聚焦。
+    fireEvent.click(screen.getByTestId("model-provider-actions-button"));
     fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    // 菜单关闭动画经定时器收口（本文件启用 fake timers）；推进后输入框才挂载。
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
     const nameInput = screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
     fireEvent.compositionStart(nameInput);
     fireEvent.change(nameInput, {
@@ -677,8 +682,13 @@ describe("ProviderModelsSection compact model rows", () => {
     const view = render(
       createElement(InlineEditableProviderCard, { provider: createProvider(), onSave }),
     );
-    fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
+    // 修复依据：上游 v3.17.2 起重命名经 ⋯ 菜单触发，输入框在菜单关闭（onCloseAutoFocus）时挂载并聚焦。
+    fireEvent.click(screen.getByTestId("model-provider-actions-button"));
     fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    // 菜单关闭动画经定时器收口（本文件启用 fake timers）；推进后输入框才挂载。
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
     const input = screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
     fireEvent.change(input, { target: { value: "Cancelled" } });
     fireEvent.change(screen.getByTestId(TID_MODEL_PROVIDER_API_KEY_INPUT), {
@@ -708,6 +718,8 @@ describe("ProviderModelsSection compact model rows", () => {
     fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
     expect(onSave).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    // 修复依据：上游 v3.17.2 起重命名输入框在菜单关闭（onCloseAutoFocus）时才挂载并聚焦。
+    fireEvent.keyDown(document, { key: "Escape" });
     const input = screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
     input.focus();
     fireEvent.change(input, { target: { value: "Confirmed" } });
@@ -758,8 +770,13 @@ describe("ProviderModelsSection compact model rows", () => {
     const view = renderWithProviderFeedback(
       createElement(InlineEditableProviderCard, { provider, onSave }),
     );
-    fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
+    // 修复依据：上游 v3.17.2 起重命名经 ⋯ 菜单触发，输入框在菜单关闭（onCloseAutoFocus）时挂载并聚焦。
+    fireEvent.click(screen.getByTestId("model-provider-actions-button"));
     fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    // 菜单关闭动画经定时器收口（本文件启用 fake timers）；推进后输入框才挂载。
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
     const input = screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
     fireEvent.change(input, { target: { value: "Retry name" } });
     fireEvent.blur(input);
@@ -767,8 +784,13 @@ describe("ProviderModelsSection compact model rows", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     expect(onSave.mock.calls[0]?.[0]).toEqual(onSave.mock.calls[1]?.[0]);
-    fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
+    // 修复依据：上游 v3.17.2 起重命名经 ⋯ 菜单触发，输入框在菜单关闭（onCloseAutoFocus）时挂载并聚焦。
+    fireEvent.click(screen.getByTestId("model-provider-actions-button"));
     fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    // 菜单关闭动画经定时器收口（本文件启用 fake timers）；推进后输入框才挂载。
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
     fireEvent.change(screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT), {
       target: { value: "Discard on switch" },
     });
