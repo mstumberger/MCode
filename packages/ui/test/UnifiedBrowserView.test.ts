@@ -400,6 +400,8 @@ describe("UnifiedBrowserView (<webview>)", () => {
     fireEvent.submit(addressInput.closest("form")!);
     expect(screen.queryByText("browser.empty")).toBeNull();
     const webview = stubWebview(screen.getByTestId(TID_BROWSER_WEBVIEW));
+    // 修复依据：上游 v3.17.2 起排队 URL 在 did-attach 最早消费（dom-ready 仅版本兼容兜底）。
+    fireDidAttach(webview);
     fireDomReady(webview);
     expect(webview.loadURL).toHaveBeenCalledWith("https://example.com");
   });
@@ -793,6 +795,8 @@ describe("UnifiedBrowserView (<webview>)", () => {
   it("guest 进程级失败盖过加载失败错误态", () => {
     renderView("browser:guest-over-load", "task-a");
     const webview = stubWebview(screen.getByTestId(TID_BROWSER_WEBVIEW));
+    // 修复依据：上游 v3.17.2 起排队 URL 在 did-attach 最早消费（dom-ready 仅版本兼容兜底）。
+    fireDidAttach(webview);
     fireDomReady(webview);
     fireDidFailLoad(webview, {
       errorCode: -202,
@@ -892,6 +896,8 @@ describe("UnifiedBrowserView (<webview>)", () => {
   it("guest 启动失败时展示失败态与诊断信息，不再裸露容器底色", () => {
     renderView("browser:launch-failed-surface", "task-a");
     const webview = stubWebview(screen.getByTestId(TID_BROWSER_WEBVIEW));
+    // 修复依据：上游 v3.17.2 起排队 URL 在 did-attach 最早消费（dom-ready 仅版本兼容兜底）。
+    fireDidAttach(webview);
     fireDomReady(webview);
 
     fireRenderProcessGone(webview, "launch-failed", 72);
