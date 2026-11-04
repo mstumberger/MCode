@@ -66,21 +66,19 @@ describe("mcp sync service", () => {
     });
     const service = createMcpSyncService();
 
-    const result = await service.listLocalUserMcpCandidates();
+    // 修复依据：上游 v3.17.2 起 listLocalUserMcpCandidates 收敛为通用数据同步合同
+    // listSyncItems（key 为小写规范化名），不再返回 source/path/config。
+    const result = await service.listSyncItems();
 
-    expect(result.localHomeDir).toBe(home);
-    expect(result.candidates).toMatchObject([
+    expect(result.homeDir).toBe(home);
+    expect(result.items).toMatchObject([
       {
+        key: "context7",
         name: "context7",
         enabled: true,
-        source: "zcode",
-        path: join(home, ".zcode", "cli", "config.json"),
-        config: {
-          command: "npx",
-          args: ["-y", "@upstash/context7-mcp"],
-        },
       },
     ]);
+    expect(result).not.toHaveProperty("importBlockedReason");
   });
 
   it("marks a candidate disabled when only enabled:false is present", async () => {
@@ -97,9 +95,10 @@ describe("mcp sync service", () => {
     });
     const service = createMcpSyncService();
 
-    const result = await service.listLocalUserMcpCandidates();
+    // 修复依据：上游 v3.17.2 起改用 listSyncItems 读取候选（key 为小写规范化名）。
+    const result = await service.listSyncItems();
 
-    expect(result.candidates[0]).toMatchObject({ name: "context7", enabled: false });
+    expect(result.items[0]).toMatchObject({ key: "context7", enabled: false });
   });
 
   it("clears a stale enabled flag when toggling a server", async () => {
@@ -154,9 +153,10 @@ describe("mcp sync service", () => {
     });
     const service = createMcpSyncService();
 
-    const result = await service.listLocalUserMcpCandidates();
+    // 修复依据：上游 v3.17.2 起改用 listSyncItems 读取候选（key 为小写规范化名）。
+    const result = await service.listSyncItems();
 
-    expect(result.candidates[0]).toMatchObject({ name: "context7", enabled: false });
+    expect(result.items[0]).toMatchObject({ key: "context7", enabled: false });
     expect((await readRemoteZcodeServers(home)).context7).toEqual({
       command: "npx",
       args: ["-y", "@upstash/context7-mcp"],
@@ -178,9 +178,10 @@ describe("mcp sync service", () => {
     });
     const service = createMcpSyncService();
 
-    const result = await service.listLocalUserMcpCandidates();
+    // 修复依据：上游 v3.17.2 起改用 listSyncItems 读取候选（key 为小写规范化名）。
+    const result = await service.listSyncItems();
 
-    expect(result.candidates[0]).toMatchObject({ name: "context7", enabled: false });
+    expect(result.items[0]).toMatchObject({ key: "context7", enabled: false });
     expect((await readRemoteZcodeServers(home)).context7).toEqual({
       command: "npx",
       args: ["-y", "@upstash/context7-mcp"],
@@ -209,7 +210,8 @@ describe("mcp sync service", () => {
     await writeFile(configPath, raw);
     const service = createMcpSyncService();
 
-    await service.listLocalUserMcpCandidates();
+    // 修复依据：上游 v3.17.2 起改用 listSyncItems 读取候选。
+    await service.listSyncItems();
 
     await expect(readFile(configPath, "utf-8")).resolves.toBe(raw);
   });
@@ -219,7 +221,9 @@ describe("mcp sync service", () => {
     process.env.HOME = remoteHome;
     const service = createMcpSyncService();
 
-    const result = await service.checkRemoteUserMcpWriteAccess();
+    // 修复依据：上游 v3.17.2 起 checkRemoteUserMcpWriteAccess 收敛为通用数据同步
+    // 合同 checkSyncWriteAccess，结果仍是 { ok, path, error? }。
+    const result = await service.checkSyncWriteAccess();
 
     expect(result).toMatchObject({
       ok: true,
@@ -234,7 +238,8 @@ describe("mcp sync service", () => {
     await writeFile(join(remoteHome, ".zcode", "cli"), "not a directory");
     const service = createMcpSyncService();
 
-    const result = await service.checkRemoteUserMcpWriteAccess();
+    // 修复依据：上游 v3.17.2 起改用 checkSyncWriteAccess。
+    const result = await service.checkSyncWriteAccess();
 
     expect(result.ok).toBe(false);
     expect(result.path).toBe(join(remoteHome, ".zcode", "cli"));
@@ -252,15 +257,18 @@ describe("mcp sync service", () => {
     });
     const service = createMcpSyncService();
 
-    const result = await service.listLocalUserMcpCandidates();
+    // 修复依据：上游 v3.17.2 起 listSyncItems 覆盖 ~/.agents 兼容回退，
+    // 并以 importBlockedReason=target-compat-config 标记该兼容态。
+    const result = await service.listSyncItems();
 
-    expect(result.candidates).toMatchObject([
+    expect(result.items).toMatchObject([
       {
+        key: "docs",
         name: "docs",
-        source: "agents",
-        path: join(home, ".agents", "mcp.json"),
+        enabled: true,
       },
     ]);
+    expect(result).toMatchObject({ importBlockedReason: "target-compat-config" });
   });
 
   it("imports stdio and HTTP MCP servers while preserving secrets", async () => {
@@ -280,24 +288,24 @@ describe("mcp sync service", () => {
       },
     });
     const localService = createMcpSyncService();
-    const candidates = await localService.listLocalUserMcpCandidates();
-    const exported = await localService.exportMcpServers({
-      serverIds: candidates.candidates.map((candidate) => candidate.id),
+    // 修复依据：上游 v3.17.2 起 export/import 改为 exportSyncItems/importSyncItems
+    // 数据同步合同：列表取 key，导入按 key + mode=createOnly 幂等创建。
+    const listed = await localService.listSyncItems();
+    const exported = await localService.exportSyncItems({
+      keys: listed.items.map((item) => item.key),
     });
 
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     const remoteService = createMcpSyncService();
-    const result = await remoteService.importMcpServers({
-      servers: exported.servers,
-      localHomeDir: exported.localHomeDir,
-      remoteWorkspacePath: "/home/dev/project",
-      overwrite: false,
+    const result = await remoteService.importSyncItems({
+      items: listed.items.map((item) => ({ key: item.key, mode: "createOnly" as const })),
+      payload: exported,
     });
 
     expect(result.results).toMatchObject([
-      { name: "context7", status: "synced" },
-      { name: "docsApi", status: "synced" },
+      { key: "context7", status: "created" },
+      { key: "docsapi", status: "created" },
     ]);
     const remoteServers = await readRemoteZcodeServers(remoteHome);
     expect(remoteServers.context7).toMatchObject({
@@ -322,23 +330,25 @@ describe("mcp sync service", () => {
       process.env.HOME = remoteHome;
       const remoteService = createMcpSyncService();
 
-      await remoteService.importMcpServers({
-        servers: [
-          {
-            id: "docs-api",
-            name: "docsApi",
-            source: "zcode",
-            path: "/Users/local/.zcode/cli/config.json",
-            enabled: true,
-            config: {
-              type: "http",
-              url: "https://mcp.example.com/mcp",
-              headers: { Authorization: "Bearer secret-token" },
+      // 修复依据：上游 v3.17.2 起导入走 importSyncItems + McpDataSyncPayload
+      // （items 为 { key, name, config, enabled }，key 为小写规范化名）。
+      await remoteService.importSyncItems({
+        items: [{ key: "docsapi", mode: "createOnly" }],
+        payload: {
+          sourceHomeDir: "/Users/local",
+          items: [
+            {
+              key: "docsapi",
+              name: "docsApi",
+              enabled: true,
+              config: {
+                type: "http",
+                url: "https://mcp.example.com/mcp",
+                headers: { Authorization: "Bearer secret-token" },
+              },
             },
-          },
-        ],
-        localHomeDir: "/Users/local",
-        overwrite: false,
+          ],
+        },
       });
 
       const configMode = (await stat(join(remoteHome, ".zcode", "cli", "config.json")))
@@ -360,9 +370,10 @@ describe("mcp sync service", () => {
       },
     });
     const localService = createMcpSyncService();
-    const candidates = await localService.listLocalUserMcpCandidates();
-    const exported = await localService.exportMcpServers({
-      serverIds: candidates.candidates.map((candidate) => candidate.id),
+    // 修复依据：上游 v3.17.2 起 export/import 改为数据同步合同。
+    const listed = await localService.listSyncItems();
+    const exported = await localService.exportSyncItems({
+      keys: listed.items.map((item) => item.key),
     });
 
     const remoteHome = makeHome();
@@ -372,14 +383,12 @@ describe("mcp sync service", () => {
     await writeFile(invalidConfigPath, '{"mcp":');
     const remoteService = createMcpSyncService();
 
-    await expect(
-      remoteService.importMcpServers({
-        servers: exported.servers,
-        localHomeDir: exported.localHomeDir,
-        remoteWorkspacePath: "/home/dev/project",
-        overwrite: false,
-      }),
-    ).rejects.toThrow(/config\.json/);
+    const result = await remoteService.importSyncItems({
+      items: listed.items.map((item) => ({ key: item.key, mode: "createOnly" as const })),
+      payload: exported,
+    });
+    expect(result.results.every((item) => item.status === "failed")).toBe(true);
+    expect(result.results[0]?.error).toMatch(/config\.json/);
     await expect(readFile(invalidConfigPath, "utf-8")).resolves.toBe('{"mcp":');
   });
 
@@ -468,20 +477,23 @@ describe("mcp sync service", () => {
       },
     });
     const localService = createMcpSyncService();
-    const candidates = await localService.listLocalUserMcpCandidates();
-    const exported = await localService.exportMcpServers({
-      serverIds: candidates.candidates.map((candidate) => candidate.id),
+    // 修复依据：上游 v3.17.2 起 export/import 改为数据同步合同；workspace 路径改写
+    // 通过 exportSyncItems 的 workspace 参数声明 source/target。
+    const listed = await localService.listSyncItems();
+    const exported = await localService.exportSyncItems({
+      keys: listed.items.map((item) => item.key),
+      workspace: {
+        sourceWorkspacePath: localWorkspacePath,
+        targetWorkspacePath: "/srv/z-code",
+      },
     });
 
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     const remoteService = createMcpSyncService();
-    await remoteService.importMcpServers({
-      servers: exported.servers,
-      localHomeDir: exported.localHomeDir,
-      localWorkspacePath,
-      remoteWorkspacePath: "/srv/z-code",
-      overwrite: false,
+    await remoteService.importSyncItems({
+      items: listed.items.map((item) => ({ key: item.key, mode: "createOnly" as const })),
+      payload: exported,
     });
 
     const remoteServers = await readRemoteZcodeServers(remoteHome);
@@ -504,9 +516,11 @@ describe("mcp sync service", () => {
       },
     });
     const localService = createMcpSyncService();
-    const candidates = await localService.listLocalUserMcpCandidates();
-    const exported = await localService.exportMcpServers({
-      serverIds: candidates.candidates.map((candidate) => candidate.id),
+    // 修复依据：上游 v3.17.2 起 export/import 改为数据同步合同；同名冲突在
+    // createOnly 模式下返回 conflict，不写入任何内容。
+    const listed = await localService.listSyncItems();
+    const exported = await localService.exportSyncItems({
+      keys: listed.items.map((item) => item.key),
     });
 
     const remoteHome = makeHome();
@@ -519,18 +533,15 @@ describe("mcp sync service", () => {
     });
     const remoteService = createMcpSyncService();
 
-    const result = await remoteService.importMcpServers({
-      servers: exported.servers,
-      localHomeDir: exported.localHomeDir,
-      remoteWorkspacePath: "/home/dev/project",
-      overwrite: false,
+    const result = await remoteService.importSyncItems({
+      items: listed.items.map((item) => ({ key: item.key, mode: "createOnly" as const })),
+      payload: exported,
     });
 
     expect(result.results).toEqual([
       {
-        name: "context7",
-        status: "skipped",
-        path: join(remoteHome, ".zcode", "cli", "config.json"),
+        key: "context7",
+        status: "conflict",
       },
     ]);
     const remoteServers = await readRemoteZcodeServers(remoteHome);
