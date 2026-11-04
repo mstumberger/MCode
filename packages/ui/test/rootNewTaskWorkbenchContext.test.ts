@@ -67,7 +67,14 @@ function fixture(
   const options = {
     intl: { formatMessage: ({ id }: { id: string }) => id } as never,
     platform: {} as never,
-    services: { projectService: { prepareSession, readTree } } as never,
+    // 修复依据：上游 v3.17.2 起新任务准备会按需 readProjects 复验软删除项目的有效性。
+    services: {
+      projectService: {
+        prepareSession,
+        readTree,
+        readProjects: async () => [{ id: "draft-project", roots: [], deleted: false }],
+      },
+    } as never,
     tabStoreApi: { getState: () => state } as never,
     addTab,
     activeWorkspacePath: "/old",

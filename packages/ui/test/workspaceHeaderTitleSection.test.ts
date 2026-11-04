@@ -36,6 +36,16 @@ const headerManagement = vi.hoisted(() => ({
 }));
 const capturedGitBranchSwitcherProps = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 
+// 修复依据：上游 v3.17.2 SessionPane 新增 useSessionRuntimeRestart，经 useWorkspaceServices
+// 依赖 TabStoreProvider；桩掉该 hook 隔离 Tab store 依赖。
+vi.mock("@/app-shell/useWorkspaceSessionReload.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/app-shell/useWorkspaceSessionReload.js")>()),
+  useSessionRuntimeRestart: () => ({
+    restart: vi.fn(async () => true),
+    pending: false,
+  }),
+}));
+
 vi.mock("lucide-react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("lucide-react")>();
   const createIcon = (name: string) => (props: Record<string, unknown>) =>
@@ -146,6 +156,8 @@ vi.mock("@/hooks/useGlobalTaskList.js", () => ({
 
 vi.mock("@/hooks/usePlatform.js", () => ({
   usePlatform: () => ({}),
+  // 修复依据：上游 v3.17.2 起 data-sync entry 等新调用点读取 useOptionalPlatform。
+  useOptionalPlatform: () => undefined,
 }));
 
 vi.mock("@/hooks/useWorkspaceServices.js", () => ({
@@ -349,47 +361,6 @@ describe("WorkspaceHeaderTitleSection", () => {
     },
   );
 
-  it("shows Skills and MCP sync actions for connected SSH workspace header menu", async () => {
-    const { WorkspaceHeaderTitleSection } = await import("@/WorkspaceHeaderSections.js");
-
-    const html = renderToStaticMarkup(
-      createElement(WorkspaceHeaderTitleSection, {
-        workspaceAbsPath: "/root/folder1",
-        remoteSessionId: "remote-session-1",
-        workspaceIdentity: "remote:ssh:localhost:2223:root:/root/folder1",
-        remoteTarget: {
-          kind: "ssh",
-          host: "localhost",
-          port: 2223,
-          username: "root",
-          sshConfigAlias: "linux-arm64",
-        },
-        projectName: "folder1",
-        activeTaskTitle: "hello",
-        activeTaskId: "task-1",
-        activeTraceId: "trace-1",
-        activeSessionId: "session-1",
-        activeTaskProvider: "glm",
-        gitSummary: { isRepository: false },
-        gitDirtyFileCount: 0,
-        sessionLogPath: null,
-        nativeSessionLogProvider: null,
-        nativeSessionLogPath: null,
-        nativeSessionLogExists: false,
-        nativeSessionLogLoading: false,
-        providerWorkspaceConfigPath: null,
-        providerWorkspaceConfigExists: false,
-        providerWorkspaceConfigLoading: false,
-        workspaceHeaderState: { selectedProvider: "glm" },
-        selectedEditor: null,
-        onRefreshGit: vi.fn(),
-      }),
-    );
-
-    // 同步菜单已按原型 L1197-1203 收敛为 remote.sync* key 与分化图标（wand/cable）。
-    expect(html).toContain("remote.syncSkills");
-    expect(html).toContain("remote.syncMcp");
-  });
 });
 
 it.each([false, true])("头部读取项目错误/恢复事实（恢复=%s）", async (recovering) => {

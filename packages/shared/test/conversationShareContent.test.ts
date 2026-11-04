@@ -76,6 +76,7 @@ describe("公开内容块", () => {
         },
       }).success,
     ).toBe(false);
+    // 修复依据：上游 v3.17.2 起分享内容允许 file:/data: 引用（仅拒绝 javascript: 与 zcode-artifact:）。
     expect(
       conversationShareContentBlockSchema.safeParse({
         ...block,
@@ -89,6 +90,6 @@ describe("公开内容块", () => {
           ],
         },
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 });

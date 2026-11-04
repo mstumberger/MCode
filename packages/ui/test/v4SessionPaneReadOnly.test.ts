@@ -36,6 +36,16 @@ const shareStoreState = vi.hoisted(() => ({
   draft: undefined as unknown,
 }));
 
+// 修复依据：上游 v3.17.2 SessionPane 新增 useSessionRuntimeRestart，经 useWorkspaceServices
+// 依赖 TabStoreProvider；桩掉该 hook 隔离 Tab store 依赖。
+vi.mock("@/app-shell/useWorkspaceSessionReload.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/app-shell/useWorkspaceSessionReload.js")>()),
+  useSessionRuntimeRestart: () => ({
+    restart: vi.fn(async () => true),
+    pending: false,
+  }),
+}));
+
 vi.mock("@/store/conversationShareSelectionStore.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/store/conversationShareSelectionStore.js")>();
