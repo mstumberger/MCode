@@ -201,6 +201,9 @@ it("routes every foreign project operation to its existing owner and never falls
     readTree: vi.fn(async () => ({ projects: [], tasks: [] })),
     saveProject: vi.fn(async () => ({ id: "remote-p" }) as VirtualProject),
     deleteProject: vi.fn(async () => {}),
+    restoreProject: vi.fn(async () => ({ id: "remote-p" }) as VirtualProject),
+    measureProjectData: vi.fn(async () => ({ projects: [] })),
+    deleteProjectData: vi.fn(async () => ({ freedBytes: 0, deletedSessions: 0, runningSessions: 0, referencedSessions: 0, failed: 0 })),
     moveTask: vi.fn(async () => {}),
     reorderProjects: vi.fn(async () => {}),
     prepareSession: vi.fn(async () => ({
@@ -235,7 +238,17 @@ it("routes every foreign project operation to its existing owner and never falls
     workspacePath: "/remote",
   });
   await service.resolveSessionDirectories({ workspacePath: "/remote", taskId: "s" }, "source");
-  for (const method of Object.values(remote)) expect(method).toHaveBeenCalledTimes(1);
+  await service.restoreProject("remote-p", "source");
+  // 上游 v3.17.2 起数据测量/删除是本机专用契约：远程项目的数据在其设备上，跨 host 一律拒绝。
+  await expect(service.measureProjectData(["remote-p"], "source")).rejects.toThrow(
+    "project.data-local-only",
+  );
+  await expect(service.deleteProjectData("remote-p", "source")).rejects.toThrow(
+    "project.data-local-only",
+  );
+  for (const [name, method] of Object.entries(remote))
+    if (name !== "measureProjectData" && name !== "deleteProjectData")
+      expect(method).toHaveBeenCalledTimes(1);
   expect(repository).not.toHaveBeenCalled();
   await expect(service.readTree({ hostId: "offline" })).rejects.toThrow("project.host-offline");
   expect(repository).not.toHaveBeenCalled();

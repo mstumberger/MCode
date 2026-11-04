@@ -106,6 +106,10 @@ describe("project-storage migration contract", () => {
       { id: "0005_projects" },
       { id: "0006_default_workspace_tasks" },
       { id: "0007_initial_workspace_order" },
+      // 上游 v3.17.2 新增的三条项目迁移同样只补号执行一次。
+      { id: "0008_remote_entry_deleted_cache" },
+      { id: "0009_session_creation_commands" },
+      { id: "0010_remote_task_ownership" },
     ]);
   });
 
@@ -122,12 +126,21 @@ describe("project-storage migration contract", () => {
       (table) => before.get(table) !== after.get(table),
     );
     expect(
-      changes.filter((table) => !(PROJECT_MIGRATION_TABLES as readonly string[]).includes(table)),
+      changes.filter(
+        (table) =>
+          // 上游 v3.17.2 的 0009 迁移新建 session_creation_commands；它不在
+          // PROJECT_MIGRATION_TABLES 内（见 schema.ts），属于本迁移族的预期新建表。
+          table !== "session_creation_commands" &&
+          !(PROJECT_MIGRATION_TABLES as readonly string[]).includes(table),
+      ),
     ).toEqual([]);
     expect(result.applied).toEqual([
       "0005_projects",
       "0006_default_workspace_tasks",
       "0007_initial_workspace_order",
+      "0008_remote_entry_deleted_cache",
+      "0009_session_creation_commands",
+      "0010_remote_task_ownership",
     ]);
     expect(
       db.prepare("SELECT id,checksum FROM schema_migration WHERE id='0005_projects'").all(),

@@ -46,6 +46,18 @@ class MockProcessManagerBase {
   // Bug 根因：service 在 provider/model 门禁通过后会标记 runtime ready；共享 mock
   // 缺少该生命周期方法会让所有进入模型执行路径的用例在业务断言前统一失败。
   markReady() {}
+
+  // 修复依据：上游 v3.17.2 客户端就绪阶段新增 runtimeCapabilities 协商，
+  // 失败分支会调用 processManager.isSharedRuntime 判断共享 runtime，mock 需补齐该方法。
+  isSharedRuntime() {
+    return false;
+  }
+
+  // 修复依据：上游 v3.17.2 disposeWorkspace 会先经 getRuntimeWorkspaces 枚举共享 runtime
+  // 下的逻辑工作区；mock 无绑定，返回空数组即按传入 workspace 处理。
+  getRuntimeWorkspaces() {
+    return [];
+  }
 }
 
 function createSessionSnapshot(params: {
@@ -245,6 +257,10 @@ describe("createZCodeAgentService provider registry", () => {
       ],
     });
     const request = vi.fn(async (method: string, params?: unknown) => {
+      // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 能力协商，空对象表示旧版 CLI。
+      if (method === zcodeProtocolMethods.runtimeCapabilities) {
+        return {};
+      }
       if (method === zcodeProtocolMethods.sessionCreate) {
         const model = (params as { model: { providerId: string; modelId: string } }).model;
         return createSessionSnapshot({ model, thoughtLevel: "high" });
@@ -296,7 +312,11 @@ describe("createZCodeAgentService provider registry", () => {
       providers: [],
     });
     const getClient = vi.fn(async () => ({
-      request: vi.fn(async () => {
+      request: vi.fn(async (method: string) => {
+        // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 能力协商，空对象表示旧版 CLI。
+        if (method === zcodeProtocolMethods.runtimeCapabilities) {
+          return {};
+        }
         throw new Error("Unexpected request");
       }),
       transportKind: "stdio" as const,
@@ -464,7 +484,8 @@ describe("createZCodeAgentService provider registry", () => {
 
   it("keeps concurrent callers on the same ready startup generation available", async () => {
     const getClient = vi.fn(async () => ({
-      request: vi.fn(),
+      // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 协商，需应答空能力对象。
+      request: vi.fn(async () => ({})),
       transportKind: "stdio" as const,
       onNotification: () => ({ dispose() {} }),
       onRequest: () => ({ dispose() {} }),
@@ -505,11 +526,17 @@ describe("createZCodeAgentService provider registry", () => {
         finishLateRead = resolve;
       });
       const getView = vi.fn().mockResolvedValueOnce(ready).mockReturnValue(lateRead);
-      const request = vi.fn(async () => ({
-        commandId: "first-input",
-        status: "accepted" as const,
-        revisionAtDecision: 1,
-      }));
+      const request = vi.fn(async (method: string) => {
+        // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 能力协商，空对象表示旧版 CLI。
+        if (method === zcodeProtocolMethods.runtimeCapabilities) {
+          return {};
+        }
+        return {
+          commandId: "first-input",
+          status: "accepted" as const,
+          revisionAtDecision: 1,
+        };
+      });
       const getClient = vi.fn(async () => ({
         request,
         transportKind: "stdio" as const,
@@ -552,7 +579,12 @@ describe("createZCodeAgentService provider registry", () => {
         await expect(command).resolves.toMatchObject({ status: "accepted" });
         expect(getView).toHaveBeenCalledTimes(1);
         expect(getClient).toHaveBeenCalledTimes(1);
-        expect(request).toHaveBeenCalledExactlyOnceWith(
+        // 修复依据：上游 v3.17.2 就绪阶段会额外发一条 runtimeCapabilities 协商；
+        // 首条输入命令仍然只能产生一条 V4 命令请求（复用同一次启动）。
+        expect(
+          request.mock.calls.filter(([method]) => method === V4_METHODS.command),
+        ).toHaveLength(1);
+        expect(request).toHaveBeenCalledWith(
           V4_METHODS.command,
           expect.objectContaining({ commandId: "first-input", type: "sendText" }),
           expect.anything(),
@@ -572,7 +604,8 @@ describe("createZCodeAgentService provider registry", () => {
     });
     const getView = vi.fn().mockReturnValueOnce(oldRead).mockResolvedValue(ready);
     const getClient = vi.fn(async () => ({
-      request: vi.fn(),
+      // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 协商，需应答空能力对象。
+      request: vi.fn(async () => ({})),
       transportKind: "stdio" as const,
       onNotification: () => ({ dispose() {} }),
       onRequest: () => ({ dispose() {} }),
@@ -612,6 +645,10 @@ describe("createZCodeAgentService provider registry", () => {
     }> = [];
     const getClient = vi.fn(async () => {
       const request = vi.fn(async (method: string) => {
+        // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 能力协商，空对象表示旧版 CLI。
+        if (method === zcodeProtocolMethods.runtimeCapabilities) {
+          return {};
+        }
         throw new Error(`Unexpected method ${method}`);
       });
       const client = {
@@ -661,7 +698,17 @@ describe("createZCodeAgentService provider registry", () => {
     expect(getClient).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceIdentity: secondIdentity }),
     );
-    expect(clients.every((client) => client.request.mock.calls.length === 0)).toBe(true);
+    // 修复依据：上游 v3.17.2 就绪阶段会先发 runtimeCapabilities 协商；
+    // 除该协商外不得有其他请求（不重建 registry、不下发模型事实）。
+    expect(
+      clients.every(
+        (client) =>
+          client.request.mock.calls.length > 0 &&
+          client.request.mock.calls.every(
+            ([method]) => method === zcodeProtocolMethods.runtimeCapabilities,
+          ),
+      ),
+    ).toBe(true);
 
     selectionSource.emit(
       createModelSelectionViewFromRegistry({
@@ -707,7 +754,8 @@ describe("createZCodeAgentService provider registry", () => {
 
   it("does not restart a released workspace from an already queued provider-ready event", async () => {
     const getClient = vi.fn(async () => ({
-      request: vi.fn(),
+      // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 协商，需应答空能力对象。
+      request: vi.fn(async () => ({})),
       transportKind: "stdio" as const,
       onNotification: () => ({ dispose() {} }),
       onRequest: () => ({ dispose() {} }),
@@ -751,6 +799,10 @@ describe("createZCodeAgentService provider registry", () => {
 
   it("reuses a read-only sessions-index client when provider/model becomes ready", async () => {
     const request = vi.fn(async (method: string) => {
+      // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 能力协商，空对象表示旧版 CLI。
+      if (method === zcodeProtocolMethods.runtimeCapabilities) {
+        return {};
+      }
       if (method === "v4/conversation/subscribe") {
         return {
           ack: {
@@ -814,6 +866,10 @@ describe("createZCodeAgentService provider registry", () => {
     const calls: string[] = [];
     const request = vi.fn(async (method: string) => {
       calls.push(method);
+      // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 能力协商，空对象表示旧版 CLI。
+      if (method === zcodeProtocolMethods.runtimeCapabilities) {
+        return {};
+      }
       if (method === zcodeProtocolMethods.providerUpdateAccountConfig) {
         return {
           receivedRevision: "account-1",
@@ -885,13 +941,16 @@ describe("createZCodeAgentService provider registry", () => {
       model: { providerId: "e2e-primary", modelId: "deepseek-v4-flash" },
     });
 
+    // 修复依据：上游 v3.17.2 就绪阶段先发 runtimeCapabilities 协商，再走 Account Config 交付。
     expect(calls).toEqual([
+      zcodeProtocolMethods.runtimeCapabilities,
       zcodeProtocolMethods.providerUpdateAccountConfig,
       zcodeProtocolMethods.providerRefreshRegistry,
       zcodeProtocolMethods.sessionCreate,
     ]);
+    // 修复依据：上游 v3.17.2 首条请求改为 runtimeCapabilities 协商，Account Config 顺延为第 2 条。
     expect(request).toHaveBeenNthCalledWith(
-      1,
+      2,
       zcodeProtocolMethods.providerUpdateAccountConfig,
       {
         revision: "account-1",
@@ -926,6 +985,10 @@ describe("createZCodeAgentService provider registry", () => {
       ]),
     });
     const request = vi.fn(async (method: string, params?: unknown) => {
+      // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 能力协商，空对象表示旧版 CLI。
+      if (method === zcodeProtocolMethods.runtimeCapabilities) {
+        return {};
+      }
       if (method === zcodeProtocolMethods.providerUpdateAccountConfig) {
         const revision = (params as { revision: string }).revision;
         return { receivedRevision: revision, providerCount: 1, status: "received" as const };
@@ -1027,6 +1090,10 @@ describe("createZCodeAgentService provider registry", () => {
     const calls: string[] = [];
     const request = vi.fn(async (method: string, params?: unknown) => {
       calls.push(method);
+      // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 能力协商，空对象表示旧版 CLI。
+      if (method === zcodeProtocolMethods.runtimeCapabilities) {
+        return {};
+      }
       if (method === V4_METHODS.command) {
         const envelope = params as { commandId: string };
         return {
@@ -1081,9 +1148,13 @@ describe("createZCodeAgentService provider registry", () => {
       status: "accepted",
       result: { type: "createSession", sessionId: "sess_v4_draft" },
     });
-    expect(calls).toEqual([V4_METHODS.command]);
+    // 修复依据：上游 v3.17.2 就绪阶段先发 runtimeCapabilities 协商，之后才允许 V4 命令。
+    expect(calls).toEqual([
+      zcodeProtocolMethods.runtimeCapabilities,
+      V4_METHODS.command,
+    ]);
     expect(request).toHaveBeenNthCalledWith(
-      1,
+      2,
       V4_METHODS.command,
       expect.objectContaining({
         type: "createSession",
@@ -1113,6 +1184,10 @@ describe("createZCodeAgentService provider registry", () => {
       });
       let waitingForRefresh = false;
       const request = vi.fn(async (method: string, params?: unknown) => {
+        // 修复依据：上游 v3.17.2 就绪阶段新增 runtimeCapabilities 能力协商，空对象表示旧版 CLI。
+        if (method === zcodeProtocolMethods.runtimeCapabilities) {
+          return {};
+        }
         if (method === zcodeProtocolMethods.providerUpdateAccountConfig) {
           return { receivedRevision: "account-1", status: "received", providerCount: 0 };
         }
@@ -1315,6 +1390,11 @@ describe("createZCodeAgentService provider registry", () => {
         // 必须保留该接口，否则尚未进入 stdio 重试断言就会因 mock 合约不完整失败。
         onRuntimeRestarted() {
           return { dispose() {} };
+        }
+        // 修复依据：上游 v3.17.2 就绪阶段 runtimeCapabilities 协商失败分支
+        // 会调用 processManager.isSharedRuntime，局部测试桩同样需要补齐。
+        isSharedRuntime() {
+          return false;
         }
         disposeAll() {}
       },

@@ -262,6 +262,8 @@ describe("WorkspaceHelpMenuButton", () => {
         ...(desktop
           ? [
               "titleBar.menu.help.exportLogs",
+              // 修复依据：上游 v3.17.2 在导出日志后新增复制设备 MID 菜单项。
+              "workspaceHeader.help.copyDeviceMid",
               "titleBar.menu.help.resourceManager",
               "titleBar.menu.help.checkForUpdates",
               "titleBar.menu.help.about",

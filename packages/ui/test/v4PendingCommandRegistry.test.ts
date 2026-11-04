@@ -453,7 +453,7 @@ describe("V4 pending command registry", () => {
     ]);
   });
 
-  it("unknown 静默清账，restart discarded 按 delivery 只保留 startNow 确认", () => {
+  it("unknown 保留线索不清账，restart discarded 按 delivery 只保留 startNow 确认", () => {
     const registry = new PendingCommandRegistry({
       storage: new MemoryStorage(),
       now: () => 1_000,
@@ -501,7 +501,11 @@ describe("V4 pending command registry", () => {
     expect(registry.listRecoverable("session-1").map((entry) => entry.recovery)).toEqual([
       "discarded",
     ]);
-    expect(registry.list("session-1").map((entry) => entry.commandId)).not.toContain("unknown");
+    // 修复依据：上游 v3.17.2 改变了 unknown 查询结果的语义——查询可能越过仍在 Host 准备的
+    // 发送，未命中不是拒绝；提前清账会恢复已发送正文并丢掉迟到 ACK 的结算订阅。因此
+    // unknown 条目保留在账本里（listRecoverable 仍过滤它，不进 UI），交给明确结果、
+    // 权威投影或 TTL 收口。
+    expect(registry.list("session-1").map((entry) => entry.commandId)).toContain("unknown");
     expect(registry.list("session-1").map((entry) => entry.commandId)).not.toContain(
       "discarded-queue",
     );

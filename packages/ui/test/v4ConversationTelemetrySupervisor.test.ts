@@ -553,6 +553,10 @@ describe("ConversationTelemetrySupervisor", () => {
       plan_product_id: "product-1",
       message_source: "chat",
       task_trigger: "",
+      // 修复依据：上游 v3.17.2 的 send seed extra detail 新增 ui_mode 维度
+      // （buildV4ConversationPromptTelemetryExtraDetail → normalizeTelemetryUiMode），
+      // 未传 uiMode 时归一化为 "unknown"。
+      ui_mode: "unknown",
     });
   });
 

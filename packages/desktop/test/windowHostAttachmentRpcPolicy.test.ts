@@ -13,7 +13,8 @@ describe("Window Host attachment RPC policy", () => {
 
     expect(policy?.allowedChannels.has(ServiceChannels.Setting)).toBe(true);
     expect(policy?.allowedChannels.has(ServiceChannels.ZCodeTask)).toBe(true);
-    expect(policy?.allowedChannels.has(ServiceChannels.Terminal)).toBe(false);
+    // 修复依据：上游 v3.17.2 向手机放行 Terminal 频道（配合 Terminal owner/scope 绑定）。
+    expect(policy?.allowedChannels.has(ServiceChannels.Terminal)).toBe(true);
     expect(policy?.allowedChannels.has(ServiceChannels.SourceServerManagement)).toBe(false);
     expect(policy?.allowedChannels.has(ServiceChannels.ProviderProvisioningTarget)).toBe(false);
     expect(policy?.allowedChannels.has(ServiceChannels.ProviderSettings)).toBe(true);
@@ -30,14 +31,15 @@ describe("Window Host attachment RPC policy", () => {
     expect([...policy!.allowedChannels].every((channel) => registeredChannels.has(channel))).toBe(
       true,
     );
-    expect(policy?.allowedChannels.size).toBe(46);
+    // 修复依据：上游 v3.17.2 调整手机 allowlist（加入 Terminal 等）后共 45 个频道。
+    expect(policy?.allowedChannels.size).toBe(45);
   });
 
   it("keeps the complete service surface for desktop attachments", () => {
     expect(resolveWindowHostServiceExposurePolicy("desktop-continuous")).toBeUndefined();
   });
 
-  it("rejects Terminal RPC before the mobile call reaches the registered service", async () => {
+  it("routes mobile Terminal RPC to the registered service", async () => {
     const terminalCreate = vi.fn(async () => ({ id: "terminal-1" }));
     const services = new ServiceCollection()
       .register(ISettingService, { get: async () => ({ locale: "zh-CN" }) } as never)
@@ -58,12 +60,13 @@ describe("Window Host attachment RPC policy", () => {
           locale: "zh-CN",
         },
       );
+      // 修复依据：上游 v3.17.2 起 Terminal 进入手机 allowlist，调用直达注册服务。
       await expect(
         client
           .getChannel(ITerminalService.channelName)
           .call("create", [{ cols: 80, rows: 24, cwd: "/repo" }]),
-      ).rejects.toThrow("Channel name 'terminal' timed out");
-      expect(terminalCreate).not.toHaveBeenCalled();
+      ).resolves.toEqual({ id: "terminal-1" });
+      expect(terminalCreate).toHaveBeenCalled();
     } finally {
       client.dispose();
       server.dispose();

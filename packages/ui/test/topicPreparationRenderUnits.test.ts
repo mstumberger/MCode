@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { UserInputRow } from "@zcode/shared/zcode-protocol-v4";
 import { withTopicPreparationMessages } from "@/v4/topicPreparationRenderUnits.js";
 import { splitConversationTimelineLiveTail } from "@/v4/conversationTimelineLiveTail.js";
+// 修复依据：上游 v3.17.2 起入参改为 history/tail 分区对象，先经 getConversationRowsPartition 构造。
+import { getConversationRowsPartition } from "@/v4/conversationProjectionStore.js";
 const pending = [
   { messageId: "a", senderName: "Alice", text: "hello", status: "preparing" as const },
 ];
@@ -20,7 +22,7 @@ describe("topic messages in conversation flow", () => {
     const units = withTopicPreparationMessages([running], [], pending);
     expect(units).toHaveLength(1);
     expect(units[0]?.key).toBe("running");
-    expect(splitConversationTimelineLiveTail(units).liveUnit?.topicPreparations).toEqual(pending);
+    expect(splitConversationTimelineLiveTail(getConversationRowsPartition(units)).liveUnit?.topicPreparations).toEqual(pending);
     expect(running.topicPreparations).toBeUndefined();
   });
   it("formal original ID replaces preparation while preserving canonical units", () => {

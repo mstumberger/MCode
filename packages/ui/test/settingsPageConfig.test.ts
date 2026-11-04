@@ -46,16 +46,30 @@ describe("settingsPageConfig", () => {
           "shortcuts",
         ],
       },
+      // 修复依据：上游 v3.17.2 新增「个性化」分区（~/.zcode/AGENTS.md 自定义指令），
+      // 列为 Agent 能力组第一项。
       {
         id: "agentCapabilities",
-        sections: ["memory", "subagents", "plugin", "mcp", "skill", "commands", "hooks"],
+        sections: [
+          "personalization",
+          "memory",
+          "subagents",
+          "plugin",
+          "mcp",
+          "skill",
+          "commands",
+          "hooks",
+        ],
       },
-      { id: "dataAndStats", sections: ["usage", "archives"] },
+      // 修复依据：上游 v3.17.2 新增「数据同步」（桌面端）与「项目管理」分区，
+      // 数据与统计组顺序为 dataSync / usage / projects / archives。
+      { id: "dataAndStats", sections: ["dataSync", "usage", "projects", "archives"] },
     ]);
     expect(settingsSections.map((section) => section.id)).toEqual([
       "general",
       "appearance",
       "modelProvider",
+      "personalization",
       "memory",
       "subagents",
       "plugin",
@@ -66,7 +80,9 @@ describe("settingsPageConfig", () => {
       "browser",
       "remoteDevices",
       "shortcuts",
+      "dataSync",
       "usage",
+      "projects",
       "archives",
     ]);
   });

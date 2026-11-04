@@ -169,6 +169,19 @@ function renderComposerWithError(
         sessionId: "session-1",
         workspacePath: "/workspace",
         provider: undefined,
+        // 修复依据：上游 v3.17.2 起 ConversationComposer 需要父级注入草稿 owner
+        // （发送路径冻结提交事务 captureComposerSubmissionDraftTransaction）。
+        composerDraftScopeToken: Symbol("test-scope"),
+        stageComposerContent: () => {},
+        captureComposerContentLifecycleCommit: () => () => {},
+        captureComposerSubmissionDraftTransaction: () => ({
+          claim: () => true,
+          restore: () => ({ current: true, applied: false }),
+          finalize: () => ({ current: true, applied: true }),
+          release: () => {},
+          matchesTarget: () => true,
+        }),
+        persistComposerContent: () => {},
         onSendText: vi.fn(async () => {}),
         onStop: vi.fn(),
         onSelectModel: vi.fn(),
@@ -203,7 +216,20 @@ function renderComposerWithSnapshot(
           sessionId: "session-1",
           workspacePath: "/workspace",
           provider: undefined,
-          onSendText: vi.fn(async () => {}),
+          // 修复依据：上游 v3.17.2 起 ConversationComposer 需要父级注入草稿 owner
+        // （发送路径冻结提交事务 captureComposerSubmissionDraftTransaction）。
+        composerDraftScopeToken: Symbol("test-scope"),
+        stageComposerContent: () => {},
+        captureComposerContentLifecycleCommit: () => () => {},
+        captureComposerSubmissionDraftTransaction: () => ({
+          claim: () => true,
+          restore: () => ({ current: true, applied: false }),
+          finalize: () => ({ current: true, applied: true }),
+          release: () => {},
+          matchesTarget: () => true,
+        }),
+        persistComposerContent: () => {},
+        onSendText: vi.fn(async () => {}),
           onStop: vi.fn(),
           onSelectModel: vi.fn(),
           onSelectThought: vi.fn(),
@@ -233,6 +259,19 @@ function renderHighspeedComposer(overrides: Record<string, unknown> = {}): strin
           issuedAt: 1_000,
           expiresAt: 60_000,
         },
+        // 修复依据：上游 v3.17.2 起 ConversationComposer 需要父级注入草稿 owner
+        // （发送路径冻结提交事务 captureComposerSubmissionDraftTransaction）。
+        composerDraftScopeToken: Symbol("test-scope"),
+        stageComposerContent: () => {},
+        captureComposerContentLifecycleCommit: () => () => {},
+        captureComposerSubmissionDraftTransaction: () => ({
+          claim: () => true,
+          restore: () => ({ current: true, applied: false }),
+          finalize: () => ({ current: true, applied: true }),
+          release: () => {},
+          matchesTarget: () => true,
+        }),
+        persistComposerContent: () => {},
         onSendText: vi.fn(async () => {}),
         onStop: vi.fn(),
         onSelectModel: vi.fn(),
@@ -255,6 +294,19 @@ function renderBlockedComposer(): string {
         workspacePath: "/workspace",
         provider: undefined,
         blockingRequestId: "perm-1",
+        // 修复依据：上游 v3.17.2 起 ConversationComposer 需要父级注入草稿 owner
+        // （发送路径冻结提交事务 captureComposerSubmissionDraftTransaction）。
+        composerDraftScopeToken: Symbol("test-scope"),
+        stageComposerContent: () => {},
+        captureComposerContentLifecycleCommit: () => () => {},
+        captureComposerSubmissionDraftTransaction: () => ({
+          claim: () => true,
+          restore: () => ({ current: true, applied: false }),
+          finalize: () => ({ current: true, applied: true }),
+          release: () => {},
+          matchesTarget: () => true,
+        }),
+        persistComposerContent: () => {},
         onSendText: vi.fn(async () => {}),
         onStop: vi.fn(),
         onSelectModel: vi.fn(),

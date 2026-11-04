@@ -134,8 +134,11 @@ describe("component cache", () => {
     await expect(readFile(join(release, "runtime", "server-core.js"), "utf8")).resolves.toBe("new");
 
     await writeFile(join(release, "runtime", "server-core.js"), "tampered", "utf8");
-    await expect(cache.assemble(assembleOptions)).rejects.toThrow(/immutable release conflict/i);
-    await expect(readFile(join(release, "runtime", "server-core.js"), "utf8")).resolves.toBe("tampered");
+    // 修复依据：上游 v3.17.2（A2）将“完整性记录与本次 archive 一致但磁盘内容已偏离记录”的
+    // 既有 release 判为损坏副本，自动用已校验的 incoming 修复，不再抛 immutable release conflict；
+    // 只有记录缺失或身份不匹配才仍按冲突失败。
+    await cache.assemble(assembleOptions);
+    await expect(readFile(join(release, "runtime", "server-core.js"), "utf8")).resolves.toBe("new");
   });
 
   it("ignores a cache entry whose archive bytes no longer match its marker", async () => {

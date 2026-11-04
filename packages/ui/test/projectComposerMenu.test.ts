@@ -29,6 +29,21 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("@/project-sidebar/ProjectDirectoryProvider.js", () => ({
   useOptionalProjectDirectory: () => null,
+  // 修复依据：上游 v3.17.2 起菜单改读项目选择目录上下文；提供与 useProjectDirectory 同源的夹具。
+  useProjectSelectionDirectory: () => ({
+    ...fixture,
+    allProjects: fixture.projects,
+    projects: fixture.projects,
+    tree: { projects: fixture.projects },
+    directory: { hosts: fixture.hosts },
+    loading: false,
+    service: { readDirectory: fixture.readDirectory, readTree: fixture.readTree },
+    remoteService: {
+      readDirectory: async () => ({ hosts: fixture.hosts }),
+      addEntry: fixture.addEntry,
+    },
+    refresh: fixture.refresh,
+  }),
   useProjectDirectory: () => ({
     ...fixture,
     tree: { projects: fixture.projects },

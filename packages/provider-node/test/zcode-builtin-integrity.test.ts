@@ -146,7 +146,9 @@ describe("ZCode Built-in Provider Config 完整性", () => {
         });
         expect(planModel.properties?.inputFormat.toJSON()).toMatchObject({
           supportsImage: true,
-          supportsVideo: true,
+          // 修复依据：上游 v3.17.2 为 coding plan 端点（api.z.ai / open.bigmodel.cn）新增站点规则，
+          // 将 GLM-5.3 的 supportsVideo 修正为 false；套餐桥接仍保留图片输入。
+          supportsVideo: false,
           supportsAudio: false,
           supportsPdf: false,
         });
@@ -243,19 +245,21 @@ describe("ZCode Built-in Provider Config 完整性", () => {
 
     try {
       const snapshot = await source.read();
+      // 修复依据：上游 v3.17.2 更新了各厂商主推型号（kimi-k3.1-pro 系列、MiniMax-M3.1-Flash、
+      // gpt-6-astra/gpt-5.6-terra/gpt-6.1-sol/gpt-6-luna 进入前缀）。
       expect(
         snapshot.providerTemplates?.get("moonshot-kimi")?.config.builtinModelIds.slice(0, 3),
-      ).toEqual(["kimi-k3", "kimi-k2.7-code", "kimi-k2.6"]);
+      ).toEqual(["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "kimi-k3"]);
       expect(
         snapshot.providerTemplates?.get("minimax")?.config.builtinModelIds.slice(0, 3),
-      ).toEqual(["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.7-highspeed"]);
+      ).toEqual(["MiniMax-M3.1-Flash", "MiniMax-M3", "MiniMax-M2.7"]);
       for (const providerId of ["qwen-alibaba-model-studio-cn", "qwen-alibaba-model-studio-intl"]) {
         expect(
           snapshot.providerTemplates?.get(providerId)?.config.builtinModelIds.slice(0, 2),
         ).toEqual(["qwen3.8-max", "qwen3.8-flash"]);
       }
       expect(snapshot.providerTemplates?.get("openai")?.config.builtinModelIds.slice(0, 4)).toEqual(
-        ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+        ["gpt-6-astra", "gpt-5.6-terra", "gpt-6.1-sol", "gpt-6-luna"],
       );
 
       const resolve = (
@@ -516,10 +520,14 @@ describe("ZCode Built-in Provider Config 完整性", () => {
         }
       }
 
+      // 修复依据：上游 v3.17.2 的目录将 gpt-5.6-sol 与 grok-4.6 归入历史型号（默认关闭），
+      // 默认启用的代表改为 gpt-5.6-terra 与 grok-4.7。
       expect(exactEnabled.get("openai\0gpt-5.6")).toBe(false);
-      expect(exactEnabled.get("openai\0gpt-5.6-sol")).toBe(true);
+      expect(exactEnabled.get("openai\0gpt-5.6-sol")).toBe(false);
+      expect(exactEnabled.get("openai\0gpt-5.6-terra")).toBe(true);
       expect(exactEnabled.get("minimax\0MiniMax-M3")).toBe(true);
       expect(exactEnabled.get("xai\0grok-4.3")).toBe(false);
+      expect(exactEnabled.get("xai\0grok-4.7")).toBe(true);
     } finally {
       source.dispose();
     }
@@ -545,25 +553,40 @@ describe("ZCode Built-in Provider Config 完整性", () => {
         "account:zai-highspeed-card",
         "account:bigmodel-highspeed-card",
       ]);
+      // 修复依据：上游 v3.17.2 扩充了 Built-in 模板清单（新增 kimi-code、minimax-m-plan、
+      // qwen coding/token plan、tencent tokenhub、volcengine、stepfun、siliconflow 等）。
       expect(snapshot.providerTemplates?.keys()).toEqual([
         "zai-api",
         "zai-standard-api",
         "bigmodel-api",
         "bigmodel-standard-api",
         "moonshot-kimi",
+        "kimi-code-cn",
+        "kimi-code-intl",
         "minimax",
+        "minimax-m-plan-cn",
         "deepseek",
         "qwen-alibaba-model-studio-cn",
         "qwen-alibaba-model-studio-intl",
+        "qwen-coding-plan-cn",
+        "qwen-token-plan-team-cn",
         "xiaomi-mimo",
         "xiaomi-mimo-token-plan",
+        "tencent-tokenhub-cn",
+        "tencent-tokenhub-intl",
+        "volcengine-ark",
+        "volcengine-coding-plan",
+        "volcengine-agent-plan",
+        "stepfun",
+        "stepfun-step-plan",
         "openai",
         "anthropic",
         "xai",
+        "siliconflow-cn",
         "openrouter",
-        "opencode-go-chat",
-        "opencode-go-messages",
         "opencode-go-responses",
+        "opencode-go-messages",
+        "opencode-go-chat",
         "opencode-zen-responses",
         "opencode-zen-messages",
         "opencode-zen-chat",
@@ -606,8 +629,10 @@ describe("ZCode Built-in Provider Config 完整性", () => {
       expect(snapshot.providerTemplates?.get("openai")?.config.toJSON()).toMatchObject({
         builtinModelIds: [
           "gpt-6-astra",
-          "gpt-5.6-sol",
           "gpt-5.6-terra",
+          "gpt-6.1-sol",
+          "gpt-6-luna",
+          "gpt-5.6-sol",
           "gpt-5.6-luna",
           "gpt-5.6",
           "gpt-5.4",
@@ -625,6 +650,9 @@ describe("ZCode Built-in Provider Config 完整性", () => {
       expect(snapshot.providerTemplates?.get("anthropic")?.config.toJSON()).toMatchObject({
         builtinModelIds: [
           "claude-fable-5-1",
+          "claude-opus-5-5",
+          "claude-sonnet-5-5",
+          "claude-haiku-5-5",
           "claude-fable-5",
           "claude-opus-5",
           "claude-sonnet-5",
@@ -637,7 +665,7 @@ describe("ZCode Built-in Provider Config 完整性", () => {
         api: { type: "anthropic-messages", baseUrl: "https://api.anthropic.com/v1" },
       });
       expect(snapshot.providerTemplates?.get("xai")?.config.toJSON()).toMatchObject({
-        builtinModelIds: ["grok-4.6", "grok-build-0.1", "grok-4.3"],
+        builtinModelIds: ["grok-build-0.1", "grok-4.7", "grok-4.6", "grok-4.3"],
         access: {
           type: "api-key",
           apiKeyManagementUrl: "https://console.x.ai",
@@ -978,6 +1006,7 @@ describe("ZCode Built-in Provider Config 完整性", () => {
       });
 
       expect(resolution.issues).toEqual([]);
+      // 修复依据：上游 v3.17.2 扩充模板清单后 Registry 顺序 = 账号 Provider + 全部模板（按目录顺序）。
       expect(resolution.registryProviders.map(({ providerId }) => providerId)).toEqual([
         "account:zai-individual-coding-plan",
         "account:zai-team-coding-plan",
@@ -994,19 +1023,32 @@ describe("ZCode Built-in Provider Config 完整性", () => {
         "template:bigmodel-api",
         "template:bigmodel-standard-api",
         "template:moonshot-kimi",
+        "template:kimi-code-cn",
+        "template:kimi-code-intl",
         "template:minimax",
+        "template:minimax-m-plan-cn",
         "template:deepseek",
         "template:qwen-alibaba-model-studio-cn",
         "template:qwen-alibaba-model-studio-intl",
+        "template:qwen-coding-plan-cn",
+        "template:qwen-token-plan-team-cn",
         "template:xiaomi-mimo",
         "template:xiaomi-mimo-token-plan",
+        "template:tencent-tokenhub-cn",
+        "template:tencent-tokenhub-intl",
+        "template:volcengine-ark",
+        "template:volcengine-coding-plan",
+        "template:volcengine-agent-plan",
+        "template:stepfun",
+        "template:stepfun-step-plan",
         "template:openai",
         "template:anthropic",
         "template:xai",
+        "template:siliconflow-cn",
         "template:openrouter",
-        "template:opencode-go-chat",
-        "template:opencode-go-messages",
         "template:opencode-go-responses",
+        "template:opencode-go-messages",
+        "template:opencode-go-chat",
         "template:opencode-zen-responses",
         "template:opencode-zen-messages",
         "template:opencode-zen-chat",

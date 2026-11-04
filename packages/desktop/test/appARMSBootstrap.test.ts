@@ -192,7 +192,12 @@ describe("appARMSBootstrap beforeReport", () => {
     expect(result.events[1]!.message).not.toContain("alice");
     expect(result.events[1]!.message).not.toContain("secret");
     expect(result.events[1]!.message).not.toContain("bob@example.com");
-    expect(result.events[2]!.url).toBe("https://zcode.z.ai/api/v1/event/report");
+    // 修复依据：上游 v3.17.2 起指向上报端点的 api/resource 事件在聚合前被整体排除
+    // （避免上报请求污染网络统计），第三个事件不再进入脱敏输出。
+    expect(result.events).toHaveLength(2);
+    expect(
+      result.events.some((event) => String(event.url ?? "").includes("event/report")),
+    ).toBe(false);
   });
 
   it("脱敏排在网络 ingest 之后，聚合仍拿到原始 URL", async () => {

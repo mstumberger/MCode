@@ -421,12 +421,14 @@ describe("createLocalServices remote authority", () => {
 
     try {
       services.exposeOnChannelServer(server);
+      // 修复依据：上游 v3.17.2 插件同步服务改为统一数据同步形状 IDataSyncCategoryService，
+      // RPC 方法名从 listLocalUserPluginCandidates 换成 listSyncItems（items/homeDir）。
       const result = await client
         .getChannel(IPluginSyncService.channelName)
-        .call("listLocalUserPluginCandidates", []);
+        .call("listSyncItems", []);
 
-      expect(result.candidates).toEqual([]);
-      expect(result.maxArchiveBytes).toBeGreaterThan(0);
+      expect(result.items).toEqual([]);
+      expect(result.homeDir).toBe(home);
     } finally {
       client.dispose();
       server.dispose();

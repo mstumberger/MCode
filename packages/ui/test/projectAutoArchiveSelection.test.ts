@@ -50,6 +50,8 @@ const task = (overrides: Partial<ProjectTask> = {}): ProjectTask => ({
 const result = (tasks: ProjectTask[]) => ({
   tree: { projects: [], tasks } as ProjectTree,
   availability: new Map(),
+  // 修复依据：上游 v3.17.2 读取结果新增 errors（按 Host 读取失败展示投影）。
+  errors: new Map(),
   directory: { hosts: [], entries: [] },
 });
 beforeEach(() => {

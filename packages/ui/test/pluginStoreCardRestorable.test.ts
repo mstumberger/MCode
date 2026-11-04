@@ -328,13 +328,15 @@ describe("PluginStoreCard restorable built-ins", () => {
     expect(html).toContain("Install");
   });
 
-  it("keeps installed card and detail enablement inside the actions menu", async () => {
+  it("keeps a persistent enabled switch on the installed card; detail enablement stays inside the actions menu", async () => {
     const item = installedItemWithRuntimeInfo();
     const cardHtml = await renderCard(item, makeActions());
     const detailHtml = await renderDetail(item, makeActions());
 
+    // 修复依据：上游 v3.17.2 商店卡片恢复常驻启停开关（plugin-store-enabled-switch），
+    // 卡片「…」菜单不再承载启停（showEnabledAction=false）；详情页启停仍在菜单内。
     expect(cardHtml).toContain('data-testid="plugin-store-item-menu"');
-    expect(cardHtml).not.toContain('data-testid="plugin-store-enabled-switch"');
+    expect(cardHtml).toContain('data-testid="plugin-store-enabled-switch"');
     expect(detailHtml).not.toContain('data-testid="plugin-store-enabled-switch"');
     expect(detailHtml).toContain('data-testid="plugin-store-item-menu"');
   });

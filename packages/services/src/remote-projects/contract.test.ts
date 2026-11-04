@@ -241,10 +241,13 @@ describe("remote project entry ownership", () => {
     for (let n = 0; n < 30; n++)
       db.prepare("INSERT INTO hosts(host_id,kind) VALUES (?,'ssh')").run(`shadow-${n}`);
     expect((await service.readDirectory()).hosts.map((host) => host.id)).toEqual(["source"]);
-    for (let n = 1; n < 20; n++) await service.saveHost({ id: `retained-${n}`, target });
-    await expect(service.saveHost({ id: "shadow-1", target })).rejects.toThrow(
-      "remote-project.host-limit",
-    );
+    // 上游 v3.17.2 移除了 host 数量上限（不再抛 remote-project.host-limit）；
+    // 与影子行同 id 的保存是正常保存，其余影子行仍不进入目录。
+    await service.saveHost({ id: "shadow-1", target });
+    expect((await service.readDirectory()).hosts.map((host) => host.id).sort()).toEqual([
+      "shadow-1",
+      "source",
+    ]);
   });
   it("advances an unchanged refresh version without broadcasting a projection change", async () => {
     const { service, project, afterChange } = await fixture();
@@ -268,14 +271,13 @@ describe("remote project entry ownership", () => {
       }),
     ).toBe(false);
   });
-  it("enforces host capacity atomically and permits editing an existing host", async () => {
+  it("saves hosts beyond the old capacity limit and permits editing an existing host", async () => {
     const { service, target } = await fixture();
     for (let n = 1; n < 20; n++) await service.saveHost({ id: `host-${n}`, target });
-    await expect(service.saveHost({ id: "overflow", target })).rejects.toThrow(
-      "remote-project.host-limit",
-    );
+    // 上游 v3.17.2 移除了 20 个 host 的数量上限；第 21 个正常保存，编辑既有 host 不受限。
+    await service.saveHost({ id: "overflow", target });
     await service.saveHost({ id: "source", target: { ...target, host: "updated" } });
-    expect((await service.readDirectory()).hosts).toHaveLength(20);
+    expect((await service.readDirectory()).hosts).toHaveLength(21);
   });
   it("rejects credentials and malformed project cache before writing", async () => {
     const { service, target, project, afterChange } = await fixture();

@@ -125,5 +125,11 @@ it("rejects private plugin attribution on existing agent steps", () => {
       plugin_component: "mcp",
       status: "success",
     }),
-  ).toEqual({ plugin_component: "mcp", status: "success" });
+  ).toEqual({
+    plugin_component: "mcp",
+    status: "success",
+    // 修复依据：上游 v3.17.2 为 agent_step 等事件的 detail 归一化补充 ui_mode，
+    // 缺失时由上报边界归为 unknown；插件私有字段仍被剥离不受影响。
+    ui_mode: "unknown",
+  });
 });

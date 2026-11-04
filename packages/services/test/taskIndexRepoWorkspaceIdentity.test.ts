@@ -222,11 +222,16 @@ describe("TaskIndexRepo migration startup barrier", () => {
     await repo.ensureReady();
     const db = getRepoDatabase(repo) as unknown as { prepare(sql: string): { all(): unknown[] } };
     // 修复原因：新增 0006 后旧断言仍只允许 0005，导致正确完成迁移也阻塞 pre-push。
-    // 明确验证当前两项迁移及重开幂等性，不依赖 SQLite 的隐式返回顺序。
+    // 明确验证当前迁移及重开幂等性，不依赖 SQLite 的隐式返回顺序。
+    // 修复依据：上游 v3.17.2 新增 0008_remote_entry_deleted_cache、0009_session_creation_commands、
+    // 0010_remote_task_ownership 三个迁移。
     const expectedMigrations = [
       { id: "0005_projects" },
       { id: "0006_default_workspace_tasks" },
       { id: "0007_initial_workspace_order" },
+      { id: "0008_remote_entry_deleted_cache" },
+      { id: "0009_session_creation_commands" },
+      { id: "0010_remote_task_ownership" },
     ];
     expect(db.prepare("select id from schema_migration order by id").all()).toEqual(
       expectedMigrations,

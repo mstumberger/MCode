@@ -21,9 +21,14 @@ describe("UI telemetry privacy", () => {
         },
       };
       await reportAppTelemetryEvent({ reportTelemetryEvent }, payload, "test");
+      // 修复依据：上游 v3.17.2 起 agent_step / message_completion 明细补齐 ui_mode（缺省 "unknown"）。
+      const sanitizedDetail =
+        elementName === "agent_step" || elementName === "message_completion"
+          ? { error_msg: "[redacted]", error_type: "TOOL_EXEC_ERROR", ui_mode: "unknown" }
+          : { error_msg: "[redacted]", error_type: "TOOL_EXEC_ERROR" };
       expect(reportTelemetryEvent).toHaveBeenCalledWith(
         expect.objectContaining({
-          eventExtraDetail: { error_msg: "[redacted]", error_type: "TOOL_EXEC_ERROR" },
+          eventExtraDetail: sanitizedDetail,
         }),
       );
       expect(logger.info).not.toHaveBeenCalled();
@@ -34,7 +39,11 @@ describe("UI telemetry privacy", () => {
         expect(logger.debug).toHaveBeenCalledWith(
           expect.any(String),
           expect.objectContaining({
-            eventExtraDetail: { error_msg: "[redacted]", error_type: "TOOL_EXEC_ERROR" },
+            eventExtraDetail: {
+              error_msg: "[redacted]",
+              error_type: "TOOL_EXEC_ERROR",
+              ui_mode: "unknown",
+            },
           }),
         );
       }

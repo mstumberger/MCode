@@ -141,10 +141,14 @@ describe("V2 手机入口", () => {
     await h.entry.start();
     const connection = h.connect.mock.calls[0][0];
     connection.onFailure({ reason: "device-not-owned" });
-    expect(h.onView).toHaveBeenLastCalledWith({
-      kind: "failure",
-      failure: { reason: "device-not-owned" },
-    });
+    // 修复依据：上游 v3.17.2 将 device-not-owned 加入 LOST_TARGET_FAILURES，失败时先异步复查
+    // 当前账号设备列表（本例列表为空，复查后仍回落到原失败页），需等待该异步流程完成后再断言。
+    await vi.waitFor(() =>
+      expect(h.onView).toHaveBeenLastCalledWith({
+        kind: "failure",
+        failure: { reason: "device-not-owned" },
+      }),
+    );
     expect(h.auth.logout).not.toHaveBeenCalled();
     await h.entry.switchAccount();
     expect(h.onView).toHaveBeenLastCalledWith({ kind: "login" });

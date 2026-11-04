@@ -183,7 +183,7 @@ describe("OffPeakTaskService 编排", () => {
     return result.task;
   };
 
-  it("换票确认连续失败由同步周期重试同一张票，active 轮询期间保持 running", async () => {
+  it("ticket_needed 收口：任务按 3102/3106 新契约置 failed、停驻留执行并核销旧票，同步周期不自动补号", async () => {
     vi.useFakeTimers();
     client.nextTicketState = "ready";
     const task = await createTask();
@@ -199,6 +199,9 @@ describe("OffPeakTaskService 编排", () => {
         complete: async () => {},
       })
       .admitted();
+    // 修复依据：上游 v3.17.2 把 3102（过号）与 3106（运行超时）统一为「失败收口」：
+    // ticket_needed 不再回队自动补号（会静默消耗下一次额度），任务直接终态 failed，
+    // 驻留执行收到 cancel，旧票核销；补号只允许用户 Continue（retakeTicket）触发。
     await service.residentExecutions.handle({
       offPeakTaskId: task.offPeakTaskId,
       executionId: "execution",
@@ -207,25 +210,19 @@ describe("OffPeakTaskService 编排", () => {
       renewalId: 1,
       expiredTicketId: task.serverTicketId!,
     });
-    const next = (await repo.get(task.offPeakTaskId))!;
-    const stillNeedsTicket = service.residentExecutions.retakeGuard(task.offPeakTaskId);
-    await repo.markRunning(task.offPeakTaskId, { startedAt: NOW });
-    control
-      .mockRejectedValueOnce(new Error("lost ACK"))
-      .mockRejectedValueOnce(new Error("lost retry ACK"));
-    await expect(
-      service.residentExecutions.deliverTicket(task.offPeakTaskId, next.serverTicketId!, {}),
-    ).rejects.toThrow("lost ACK");
-    expect(stillNeedsTicket()).toBe(false);
-    client.statusResponse = { tickets: [{ ticketId: next.serverTicketId!, state: "active" }] };
+
+    const after = await repo.get(task.offPeakTaskId);
+    expect(after?.status).toBe("failed");
+    expect(after?.failureReason).toBe("off-peak-ticket-expired");
+    expect(control).toHaveBeenCalledWith(expect.objectContaining({ action: "cancel" }));
+    expect(client.settleCalls).toContain(task.serverTicketId);
+    // 只剩 createTask 的第一次取号；同步周期不重取。
+    expect(client.takeCalls).toEqual([task.offPeakTaskId]);
+    client.statusResponse = { tickets: [{ ticketId: task.serverTicketId!, state: "active" }] };
     await service.runSyncCycle();
-    expect((await repo.get(task.offPeakTaskId))?.status).toBe("running");
     await service.runSyncCycle();
-    expect(control).toHaveBeenCalledTimes(3);
-    expect((await repo.get(task.offPeakTaskId))?.status).toBe("running");
-    expect(client.takeCalls).toHaveLength(2);
-    await service.runSyncCycle();
-    expect(control).toHaveBeenCalledTimes(3);
+    expect(client.takeCalls).toEqual([task.offPeakTaskId]);
+    expect((await repo.get(task.offPeakTaskId))?.status).toBe("failed");
   });
 
   const makeLegacySelectionRow = async (offPeakTaskId: string) => {
@@ -534,7 +531,7 @@ describe("OffPeakTaskService 编排", () => {
     expect((await repo.get(a.offPeakTaskId))?.settledAt).toBe(NOW);
   });
 
-  it("handleTicketExpiredDuringRun：running 回队保 session 并同 task_id 重取号（§4.6）", async () => {
+  it("handleTicketExpiredDuringRun：running 直接终态 failed 且不自动补号；已取消的任务不被改写", async () => {
     const created = await createTask();
     await repo.updateSchedulingSnapshot(created.offPeakTaskId, {
       schedulable: true,
@@ -546,29 +543,25 @@ describe("OffPeakTaskService 编排", () => {
       sessionId: "sess-1",
     });
 
+    // 修复依据：上游 v3.17.2 移除 §4.6 的自动回队补号（3102/3106 混用会静默消耗额度）；
+    // 过期即 failed + off-peak-ticket-expired 标记，session 信息保留在行上，取号次数不变。
     await service.handleTicketExpiredDuringRun(created.offPeakTaskId);
     const after = await repo.get(created.offPeakTaskId);
-    expect(after?.status).toBe("queued");
+    expect(after?.status).toBe("failed");
+    expect(after?.failureReason).toBe("off-peak-ticket-expired");
     expect(after?.sessionId).toBe("sess-1");
-    expect(after?.serverTicketId).toBe("t-2"); // 新票
-    expect(client.takeCalls).toEqual([created.offPeakTaskId, created.offPeakTaskId]);
+    expect(client.takeCalls).toEqual([created.offPeakTaskId]);
 
-    // 已取消的任务不回队
-    await service.cancelTask(created.offPeakTaskId);
-    await service.handleTicketExpiredDuringRun(created.offPeakTaskId);
-    expect((await repo.get(created.offPeakTaskId))?.status).toBe("cancelled");
+    // 已取消的任务不被过期收口改写
+    const other = await createTask();
+    await service.cancelTask(other.offPeakTaskId);
+    await service.handleTicketExpiredDuringRun(other.offPeakTaskId);
+    expect((await repo.get(other.offPeakTaskId))?.status).toBe("cancelled");
   });
 
-  it("驻留任务换票在途被用户接管时，不写回迟到新票也不把任务完成", async () => {
+  it("票过期收口后迟到的接管/放票事件不能把 failed 改回 running 或触发完成", async () => {
     const created = await createTask();
     await repo.markRunning(created.offPeakTaskId, { startedAt: NOW, conversationId: "session" });
-    let resolveTicket!: (ticket: OffPeakTakeTicketResult) => void;
-    const take = vi.spyOn(client, "takeTicket").mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveTicket = resolve;
-        }),
-    );
     const complete = vi.fn(async () => {});
     const handle = service.residentExecutions.register({
       offPeakTaskId: created.offPeakTaskId,
@@ -580,21 +573,19 @@ describe("OffPeakTaskService 编排", () => {
     });
     handle.admitted();
     const base = { offPeakTaskId: created.offPeakTaskId, executionId: "run", sessionId: "session" };
-    const renewing = service.residentExecutions.handle({
+    // 修复依据：上游 v3.17.2 过期不再“在途换票”，ticket_needed 直接失败收口；
+    // 之后的迟到 user_takeover / ticket_released 只允许清理，不得复活终态或写完成。
+    await service.residentExecutions.handle({
       ...base,
       type: "ticket_needed",
       renewalId: 1,
       expiredTicketId: "t-1",
     });
-    await expect.poll(() => take.mock.calls.length).toBe(1);
+    expect((await repo.get(created.offPeakTaskId))?.status).toBe("failed");
     await service.residentExecutions.handle({ ...base, type: "user_takeover" });
-    resolveTicket({ ticketId: "late", state: "ready", registeredAt: NOW });
-    await renewing;
-    expect((await repo.get(created.offPeakTaskId))?.status).toBe("running");
-    expect((await repo.get(created.offPeakTaskId))?.serverTicketId).toBe("t-1");
-    expect(client.settleCalls).toContain("late");
+    expect((await repo.get(created.offPeakTaskId))?.status).toBe("failed");
     await service.residentExecutions.handle({ ...base, type: "ticket_released", ticketId: "t-1" });
-    expect((await repo.get(created.offPeakTaskId))?.status).toBe("running");
+    expect((await repo.get(created.offPeakTaskId))?.status).toBe("failed");
     expect(complete).not.toHaveBeenCalled();
     handle.dispose();
   });

@@ -1970,16 +1970,37 @@ describe("ConversationShareService", () => {
     expect(client.createPreparation).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["data:text/plain;base64,YQ==", "unsafe_structure"],
-    ["file:///tmp/report.html", "unsafe_structure"],
-    ["zcode-artifact://share/report", "artifact_protocol_not_ready"],
-  ] as const)("rejects unsupported local reference %s", async (text, kind) => {
+  // 修复依据：上游 v3.17.2 移除了对 data:/file: 前缀文本的整体拒绝（URI 前缀不能判定
+  // 文本是否为附件，附件由正式引用校验）；普通文本可正常发布，zcode-artifact:// 引用仍被拒。
+  // file:// 指向 .html 时会进入预览产物发现（需要稳定的 turn 身份），此处补上 entityId。
+  it.each([["data:text/plain;base64,YQ=="], ["file:///tmp/report.html"]] as const)(
+    "allows plain local reference text %s",
+    async (text) => {
+      const rows = completedRows();
+      rows[0] = { ...rows[0]!, entityId: "header-entity" };
+      rows[1] = { ...rows[1], kind: "assistantText", text, state: "complete" };
+      const { service, client } = createDependencies(rows);
+
+      await expect(service.publish(publishInput(), "publish-op-17")).resolves.toMatchObject({
+        share_code: "share-1",
+      });
+      expect(client.createPreparation).toHaveBeenCalled();
+    },
+  );
+
+  it("rejects unsupported artifact reference zcode-artifact://share/report", async () => {
     const rows = completedRows();
-    rows[1] = { ...rows[1], kind: "assistantText", text, state: "complete" };
+    rows[1] = {
+      ...rows[1],
+      kind: "assistantText",
+      text: "zcode-artifact://share/report",
+      state: "complete",
+    };
     const { service, client } = createDependencies(rows);
 
-    await expect(service.publish(publishInput(), "publish-op-17")).rejects.toMatchObject({ kind });
+    await expect(service.publish(publishInput(), "publish-op-17")).rejects.toMatchObject({
+      kind: "artifact_protocol_not_ready",
+    });
     expect(client.createPreparation).not.toHaveBeenCalled();
   });
 

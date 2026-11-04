@@ -88,18 +88,29 @@ describe("ChatErrorBanner i18n", () => {
     ).toBe("Current image attachments are too large. Remove or compress images and try again.");
   });
 
-  it("闲时票据不可用不展示上游原文（3102 与包装后的稳定标记都要本地化）", () => {
+  it("闲时票据不可用不展示上游原文（3102/3106 与包装后的稳定标记都要本地化）", () => {
     const zhIntl = createIntl(zhCN);
     const enIntl = createIntl(enUS);
 
+    // 修复依据：上游 v3.17.2 将闲时票据错误拆分为稳定业务码——
+    // 3102 = 排到任务时设备未在线（额度已返还），3106 = 超过单次最长运行时间；
+    // 横幅按 code 本地化，不展示上游原文。
     expect(
       resolveChatErrorBannerDisplayMessage(
         { code: "3102", message: "off peak ticket is invaliad or expired" },
         zhIntl,
       ),
+    ).toBe("排到任务时设备未在线。额度已返还，请保持设备在线后重新创建闲时任务。");
+
+    expect(
+      resolveChatErrorBannerDisplayMessage(
+        { code: "3106", message: "off peak ticket is invaliad or expired" },
+        zhIntl,
+      ),
     ).toBe("已超过单次最长运行时间，请创建新的闲时任务继续。");
 
-    // 外层 code 被压成包装码时靠适配层写入的稳定标记兜底。
+    // 外层 code 被压成包装码时靠适配层写入的稳定标记兜底；
+    // 历史标记同时覆盖过号与运行超时，只能映射到通用「已无法继续」文案。
     expect(
       resolveChatErrorBannerDisplayMessage(
         {
@@ -108,8 +119,6 @@ describe("ChatErrorBanner i18n", () => {
         },
         enIntl,
       ),
-    ).toBe(
-      "This run exceeded the maximum single-run time. Create a new off-peak task to continue.",
-    );
+    ).toBe("This idle-time task can no longer continue. Create a new idle-time task.");
   });
 });

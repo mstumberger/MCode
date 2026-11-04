@@ -209,7 +209,7 @@ describe("offPeakServerClient × offPeakMockGateway 契约联测", () => {
     expect(after.tickets[0]!.state).toBe("settled");
   });
 
-  it("messages：active 到期后返回 400/3102（触发续跑）；未知票同样 3102", async () => {
+  it("messages：active 到期后返回 400/3106；未激活过号 3102；未知票 3104", async () => {
     await gateway.close();
     gateway = await startOffPeakMockGateway(
       {
@@ -219,10 +219,13 @@ describe("offPeakServerClient × offPeakMockGateway 契约联测", () => {
           headers: {},
         }),
       },
-      { readyDelayMs: 0, activeMs: 30, port: 0 },
+      { readyDelayMs: 0, readyTtlMs: 30, activeMs: 30, port: 0 },
     );
     const client = makeClient(gateway.origin);
     const taken = await client.takeTicket("task-4");
+    // 未激活票：先经一次状态轮询推进到 ready，再让 readyTtl 超时（保持从未准入 active）。
+    const idle = await client.takeTicket("task-4-idle");
+    await client.batchStatus([idle.ticketId]);
     const send = (ticketId: string) =>
       fetch(`${gateway.origin}/api/v1/off-peak/anthropic/v1/messages`, {
         method: "POST",
@@ -234,13 +237,19 @@ describe("offPeakServerClient × offPeakMockGateway 契约联测", () => {
       });
 
     expect((await send(taken.ticketId)).status).toBe(200); // 准入 → active
-    await new Promise((resolve) => setTimeout(resolve, 60)); // 超过 activeMs
+    await new Promise((resolve) => setTimeout(resolve, 60)); // 超过 activeMs / readyTtlMs
+    // 修复依据：上游 v3.17.2 服务端把过期分码——已激活（active 窗口耗尽）为 3106，
+    // 未激活过号（readyTtl 超时）为 3102，未知/已核销票为 3104；客户端兼容两码收口。
     const expired = await send(taken.ticketId);
     expect(expired.status).toBe(400);
-    expect(((await expired.json()) as { code: number }).code).toBe(3102);
+    expect(((await expired.json()) as { code: number }).code).toBe(3106);
+
+    const idleResponse = await send(idle.ticketId);
+    expect(idleResponse.status).toBe(400);
+    expect(((await idleResponse.json()) as { code: number }).code).toBe(3102);
 
     const unknown = await send("no-such-ticket");
-    expect(((await unknown.json()) as { code: number }).code).toBe(3102);
+    expect(((await unknown.json()) as { code: number }).code).toBe(3104);
   });
 
   it("客户端错误映射：非 2xx 抛 OffPeakServerError 携带 bizCode", async () => {

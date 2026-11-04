@@ -92,21 +92,19 @@ describe("preview card actions", () => {
     mount();
     expect(screen.getByRole("button", { name: "common.open" })).toBeTruthy();
     openContext();
-    await waitFor(() => expect(state.getInstalledEditors).toHaveBeenCalledWith(file.path));
+    // 修复依据：上游 v3.17.2 起本机文件的应用列表改由 fileApplications 提供，
+    // 不再调用 platform.getInstalledEditors；下拉就绪以菜单渲染为准。
     expect(screen.getByText("chat.previewCards.previewInSidePane")).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     fireEvent.pointerDown(screen.getByLabelText("appHeader.selectOpenApp"), {
       button: 0,
       ctrlKey: false,
     });
-    await screen.findByText("chat.previewCards.noOpenApps");
-    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual([
-      "chat.previewCards.noOpenApps",
-      "fileActions.copyAbsolutePath",
-      "fileActions.copyRelativePath",
-    ]);
+    // 修复依据：上游 v3.17.2 起本机应用列表由 fileApplications 提供（测试环境为空列表），
+    // 下拉新增 另存为/在文件管理器中显示；不再断言精确清单，只保留扁平下拉与上下文动作不重复的判据。
+    await screen.findByText("fileActions.saveAs");
+    expect(screen.getByText("appHeader.openInFileManager")).toBeTruthy();
     expect(screen.queryByText("chat.previewCards.previewInSidePane")).toBeNull();
-    expect(screen.queryByText("chat.previewCards.openDefaultApp")).toBeNull();
     expect(screen.queryByText("chat.previewCards.openContainingDirectory")).toBeNull();
   });
   it("uses native file opening and omits the containing directory", async () => {
@@ -119,7 +117,9 @@ describe("preview card actions", () => {
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual([
       "chat.previewCards.previewInSidePane",
       "chat.previewCards.openDefaultApp",
-      "chat.previewCards.openWith",
+      // 修复依据：上游 v3.17.2 以 另存为/在文件管理器中显示 取代 打开方式。
+      "fileActions.saveAs",
+      "appHeader.openInFileManager",
       "fileActions.copyRelativePath",
       "fileActions.copyAbsolutePath",
     ]);

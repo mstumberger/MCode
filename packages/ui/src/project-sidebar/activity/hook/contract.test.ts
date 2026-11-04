@@ -121,5 +121,8 @@ it("未打开 tab 的远端 scope 接入同一个观察器，运行态不改变 
   });
   expect(result.current.tree.tasks).toHaveLength(1);
   expect(listTaskList).toHaveBeenCalledTimes(2);
-  expect(mocks.readTree.mock.calls.length).toBeLessThanOrEqual(3);
+  // 修复依据：上游 v3.17.2 在 useProjectTree 增加本地树兜底读取——首次完整读取尚未接受快照时
+  // 额外补读一次本地树（远端入口目录冷启动失败时仍显示本地项目），每个 service 实例至多一次；
+  // 上限从 3 放宽到 4，防循环刷新的语义不变（次数有界、不随事件增长）。
+  expect(mocks.readTree.mock.calls.length).toBeLessThanOrEqual(4);
 });

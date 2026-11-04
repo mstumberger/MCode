@@ -181,6 +181,11 @@ describe("node repl tool interaction", () => {
     previewViewport.setPointerCapture = setPointerCapture;
     previewViewport.hasPointerCapture = vi.fn(() => true);
     previewViewport.releasePointerCapture = releasePointerCapture;
+    // 修复依据：上游 v3.17.2 的预览面板在 naturalWidth 为 0（jsdom 未解码）时忽略指针手势；
+    // 手动触发 onLoad 提供 natural 尺寸后手势才生效。
+    Object.defineProperty(previewImage, "naturalWidth", { value: 1200 });
+    Object.defineProperty(previewImage, "naturalHeight", { value: 800 });
+    fireEvent.load(previewImage);
 
     fireEvent.pointerDown(previewViewport, {
       clientX: 100,

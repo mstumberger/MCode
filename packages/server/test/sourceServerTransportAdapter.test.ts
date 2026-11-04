@@ -55,9 +55,12 @@ class FakeBackend implements IRemoteBackend {
       const releaseSection = command.includes("__ZCODE_PROBE_RELEASE__")
         ? `__ZCODE_PROBE_RELEASE__\n${JSON.stringify({ version: "3.8.0", archiveSha256: "c".repeat(64) })}\n`
         : "";
+      // 修复依据：上游 v3.17.2 的 probe 脚本新增必填 ROOT 段（安装根目录），缺失时按
+      // incomplete output 拒绝探测；模拟输出必须补上该段。
       return completedStream(
         `__ZCODE_PROBE_PLATFORM__\nLinux\n` +
           `__ZCODE_PROBE_ARCH__\nx86_64\n` +
+          `__ZCODE_PROBE_ROOT__\n/home/alice/.zcode/server\n` +
           `__ZCODE_PROBE_KERNEL__\nLinux\n` +
           `__ZCODE_PROBE_INSTALLED__\n1\n` +
           releaseSection +
@@ -171,7 +174,7 @@ it("reads the installed release identity only when development probing requests 
 
 describe("probe failure classification", () => {
   const target = targets[0]!;
-  const probeWith = (exec: () => Promise<StdioStream>) => {
+  const probeWith = (exec: () => Promise<StdioStream>, context: Record<string, unknown> = {}) => {
     const backend = new FakeBackend();
     backend.exec = async (command) => {
       backend.commands.push(command);
@@ -179,7 +182,7 @@ describe("probe failure classification", () => {
     };
     return createSourceServerTransportAdapter("ssh", { createBackend: async () => backend }).probe(
       target,
-      {},
+      context as never,
     );
   };
 
@@ -225,21 +228,34 @@ describe("probe failure classification", () => {
   });
 
   const linuxProbeOutput = (libc: string) =>
-    "__ZCODE_PROBE_PLATFORM__\nLinux\n__ZCODE_PROBE_ARCH__\nx86_64\n__ZCODE_PROBE_KERNEL__\nLinux\n" +
+    // 修复依据：上游 v3.17.2 将 ROOT 列为 probe 必填段，模拟输出补上安装根目录。
+    "__ZCODE_PROBE_PLATFORM__\nLinux\n__ZCODE_PROBE_ARCH__\nx86_64\n__ZCODE_PROBE_ROOT__\n/home/alice/.zcode/server\n" +
+    "__ZCODE_PROBE_KERNEL__\nLinux\n" +
     `__ZCODE_PROBE_LIBC__\n${libc}\n__ZCODE_PROBE_INSTALLED__\n0\n__ZCODE_PROBE_END__\n`;
 
   it.each(["2.17", "2.27"])(
-    "rejects Linux glibc %s before install because the bundled Node runtime needs glibc 2.28",
+    "warns on Linux glibc %s but keeps the install chain because the bundled Node runtime needs glibc 2.28",
     async (version) => {
-      // ZCT-2112008575366098944：CentOS 7 先上传 87MB archive，解压后执行 bin/zcode 才报 7 行 not found。
+      // 修复依据：上游 v3.17.2 将旧 glibc（ZCT-2112008575366098944 场景）从 probe 阶段硬拒绝
+      // 改为 warnUnsupportedLibc 的 warn 日志：已有服务仍可尝试连接，实际能否运行由后续安装/启动决定。
+      const logs: Array<{ phase?: string; level?: string; message: string }> = [];
       await expect(
-        probeWith(async () => completedStream(linuxProbeOutput(`glibc ${version}`))),
-      ).rejects.toMatchObject({
-        code: "remote-preflight-failed",
-        message: expect.stringMatching(
-          new RegExp(`glibc ${version.replace(".", "\\.")}\\b.*glibc 2\\.28`, "u"),
-        ),
-      });
+        probeWith(async () => completedStream(linuxProbeOutput(`glibc ${version}`)), {
+          onLog: (event: { phase?: string; level?: string; message: string }) => logs.push(event),
+        }),
+      ).resolves.toMatchObject({ platform: "linux", installed: false });
+      expect(logs).toContainEqual(
+        expect.objectContaining({
+          phase: "probe",
+          level: "warn",
+          message: expect.stringMatching(
+            new RegExp(
+              `Remote glibc ${version.replace(".", "\\.")} is older than glibc 2\\.28`,
+              "u",
+            ),
+          ),
+        }),
+      );
     },
   );
 
@@ -283,7 +299,13 @@ it("reuses a just-probed ready daemon status instead of running serve --daemon a
 
   await expect(
     adapter.ensureDaemon(targets[0]!, {}, { observedStatus: probe.daemonStatus }),
-  ).resolves.toEqual({ port: 43123, ingressToken: "ingress-token-value" });
+    // 修复依据：上游 v3.17.2 在 ensureDaemon 复用 probe 就绪状态时返回 reusedProbeStatus: true，
+    // 用于向调用方区分“未重新执行 serve --daemon”。
+  ).resolves.toEqual({
+    port: 43123,
+    ingressToken: "ingress-token-value",
+    reusedProbeStatus: true,
+  });
 
   expect(backend.commands.slice(commandCountBeforeEnsure)).not.toEqual(
     expect.arrayContaining([expect.stringContaining("'serve' '--daemon'")]),

@@ -38,8 +38,21 @@ vi.mock("@/settings/RemoteSyncActions.js", () => ({
   shouldShowRemoteSyncActions: () => false,
 }));
 
+// 修复依据：上游 v3.17.2 连接向导目录步骤接入 data-sync 一键同步入口，
+// 其 useDataSyncDeviceOnline -> useBaseWorkspaceServices 需要 ServiceProvider 上下文；
+// 本用例只验证占位文案与 banner，桩掉 data-sync 视图面即可。
+vi.mock("@/data-sync/index.js", () => ({
+  DataSyncEntryDropdownButton: () => createElement("div", { "data-testid": "data-sync-entry" }),
+  isDataSyncEntryRemoteTarget: () => false,
+  useDataSyncDeviceOnline: () => false,
+  useDataSyncEntry: () => ({ available: false, open: () => {}, dialog: null }),
+}));
+
 vi.mock("@/hooks/usePlatform.js", () => ({
   usePlatform: () => ({}),
+  // 修复依据：上游 v3.17.2 连接向导目录步骤接入 data-sync 入口
+  // （useDataSyncEntry -> useOptionalPlatform），mock 需补该导出；返回 null 表示无平台能力。
+  useOptionalPlatform: () => null,
 }));
 
 vi.mock("@/feedback/feedbackStore.js", () => ({

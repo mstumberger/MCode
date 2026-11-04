@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+// 修复依据：上游 v3.17.2 移除全局版本计数 getHighspeedTurnVersion（避免无关会话一起更新），
+// 通知面改为 subscribeHighspeedTurns 监听 + 卡级依赖快照，测试改用监听次数断言通知行为。
 import {
   aggregateHighspeedCardMetrics,
   claimHighspeedCardAutoShare,
@@ -6,7 +8,6 @@ import {
   completeHighspeedTurn,
   discardHighspeedTurn,
   getHighspeedTurnByCommandId,
-  getHighspeedTurnVersion,
   hydrateHighspeedTurnsFromTranscript,
   listExpiredHighspeedCardsAwaitingTps,
   listHighspeedCardAutoShareCandidates,
@@ -15,6 +16,7 @@ import {
   recordHighspeedTurn,
   resolveNextHighspeedAutoShareAt,
   setHighspeedCardTps,
+  subscribeHighspeedTurns,
 } from "@/highspeed/highspeedTurnStore.js";
 import { claimHighspeedFallbackToast } from "@/highspeed/highspeedToastClaims.js";
 
@@ -110,7 +112,9 @@ describe("highspeed turn store", () => {
     expect(getHighspeedTurnByCommandId(sourceCommandId)?.metrics).toBeUndefined();
     expect(listHighspeedCardAutoShareCandidates(sessionId)).toEqual([]);
 
-    const versionBefore = getHighspeedTurnVersion();
+    // 修复依据：上游 v3.17.2 通知面改为 subscribeHighspeedTurns，用监听次数替代版本计数。
+    const notify = vi.fn();
+    const unsubscribe = subscribeHighspeedTurns(notify);
     const completedRow = {
       ...runningRow,
       highspeed: {
@@ -126,7 +130,7 @@ describe("highspeed turn store", () => {
     };
     expect(hydrateHighspeedTurnsFromTranscript(sessionId, [completedRow])).toBe(1);
     // 迟到的完整 metadata 只产生一次 store 通知。
-    expect(getHighspeedTurnVersion()).toBe(versionBefore + 1);
+    expect(notify).toHaveBeenCalledTimes(1);
     expect(getHighspeedTurnByCommandId(sourceCommandId)).toMatchObject({
       metrics: {
         outputTokens: 120,
@@ -148,9 +152,9 @@ describe("highspeed turn store", () => {
     });
 
     // 完全相同的再次水合是幂等 no-op：不改记录、不通知。
-    const versionAfter = getHighspeedTurnVersion();
     expect(hydrateHighspeedTurnsFromTranscript(sessionId, [completedRow])).toBe(0);
-    expect(getHighspeedTurnVersion()).toBe(versionAfter);
+    expect(notify).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 
   it("never clears a live completion when the transcript row is still running", () => {
@@ -160,7 +164,9 @@ describe("highspeed turn store", () => {
     recordHighspeedTurn({ sessionId, sourceCommandId, card: liveCard, createdAt: 1 });
     completeHighspeedTurn({ sourceCommandId, outputTokens: 90, durationMs: 700 });
 
-    const versionBefore = getHighspeedTurnVersion();
+    // 修复依据：同上，用监听次数断言运行态水合不产生通知。
+    const notify = vi.fn();
+    const unsubscribe = subscribeHighspeedTurns(notify);
     // transcript 仍是运行态（无完成字段）：运行态字段不得覆盖已完成字段，也不应产生通知。
     expect(
       hydrateHighspeedTurnsFromTranscript(sessionId, [
@@ -183,7 +189,8 @@ describe("highspeed turn store", () => {
       outputTokens: 90,
       durationMs: 700,
     });
-    expect(getHighspeedTurnVersion()).toBe(versionBefore);
+    expect(notify).not.toHaveBeenCalled();
+    unsubscribe();
   });
 
   it("discards a queued Highspeed record when promotion falls back to the session model", () => {

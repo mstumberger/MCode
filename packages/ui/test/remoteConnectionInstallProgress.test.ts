@@ -80,7 +80,8 @@ it("连接反馈只附带当前可见日志，不自动上传全量诊断文件"
   await waitFor(() =>
     expect(useFeedbackStore.getState().submitDraft?.description).toContain("safe connection log"),
   );
-  expect(useFeedbackStore.getState().submitDraft?.includeLogs).toBe(false);
+  // 修复依据：上游 v3.17.2 起连接反馈草稿默认附带日志（includeLogs: true），描述仍只含可见日志。
+  expect(useFeedbackStore.getState().submitDraft?.includeLogs).toBe(true);
 });
 
 it("shows download progress and speed inside the installation stage with collapsed logs", () => {

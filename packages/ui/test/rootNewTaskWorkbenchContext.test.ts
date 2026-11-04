@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "@/components/ui/toast.js";
 import {
   readV4ComposerDraft,
   readComposerWorkspaceScope,
@@ -19,6 +20,10 @@ import {
   usePaneLayoutStore,
 } from "@/v4/paneLayoutStore.js";
 import { useWorkbenchGroupStore } from "@/v4/workbenchGroupStore.js";
+
+// 修复依据：上游 v3.17.2 新任务准备失败不再写入 workspaceActionError（原状态无人展示），
+// 改在仍有效的动作出口经 toast 反馈；mock 后即可断言该错误面。
+vi.mock("@/components/ui/toast.js", () => ({ toast: vi.fn() }));
 
 function fixture(
   clientMode: "desktop-continuous" | "web-remote-replayable" = "desktop-continuous",
@@ -67,7 +72,18 @@ function fixture(
   const options = {
     intl: { formatMessage: ({ id }: { id: string }) => id } as never,
     platform: {} as never,
-    services: { projectService: { prepareSession, readTree } } as never,
+    // 修复依据：上游 v3.17.2 起新任务准备会按需 readProjects 复验软删除项目的有效性；
+    // 只继承「同 Host（local）且未删除」的项目，因此 mock 需带 hostId 并覆盖各用例引用的项目。
+    services: {
+      projectService: {
+        prepareSession,
+        readTree,
+        readProjects: async () => [
+          { id: "draft-project", roots: [], hostId: "local", deleted: false },
+          { id: "current", roots: [], hostId: "local", deleted: false },
+        ],
+      },
+    } as never,
     tabStoreApi: { getState: () => state } as never,
     addTab,
     activeWorkspacePath: "/old",
@@ -296,7 +312,9 @@ describe("project-aware new task creation", () => {
     expect(useZCodeSessionStore.getState().getWorkspaceState("/old").activeTaskId).toBe(
       "old-session",
     );
-    expect(result.current.workspaceActionError).toContain("directory unavailable");
+    // 修复依据：上游 v3.17.2 该失败面改经 toast 反馈，workspaceActionError 保持 null。
+    expect(result.current.workspaceActionError).toBeNull();
+    expect(toast).toHaveBeenCalledWith("directory unavailable");
   });
 });
 
@@ -367,7 +385,9 @@ it("does not allocate a directory when the mobile peer lacks project admission",
   });
   expect(prepareSession).not.toHaveBeenCalled();
   expect(addTab).not.toHaveBeenCalled();
-  expect(result.current.workspaceActionError).toBe("project.remote-navigation-unavailable");
+  // 修复依据：上游 v3.17.2 该失败面改经 toast 反馈（错误码原文），workspaceActionError 保持 null。
+  expect(result.current.workspaceActionError).toBeNull();
+  expect(toast).toHaveBeenCalledWith("project.remote-navigation-unavailable");
 });
 
 it.each(["desktop-continuous", "web-remote-replayable"] as const)(

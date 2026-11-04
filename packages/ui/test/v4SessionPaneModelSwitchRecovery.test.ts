@@ -245,6 +245,16 @@ vi.mock("@/v4/ConversationDraftSuggestedPromptsContainer.js", () => ({
   ConversationDraftSuggestedPromptsContainer: () => null,
 }));
 
+// 修复依据：上游 v3.17.2 SessionPane 新增 useSessionRuntimeRestart，经 useWorkspaceServices
+// 依赖 TabStoreProvider；本文件只验证模型恢复链路（任务重启由独立 hook 测试覆盖），桩掉该 hook。
+vi.mock("@/app-shell/useWorkspaceSessionReload.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/app-shell/useWorkspaceSessionReload.js")>()),
+  useSessionRuntimeRestart: () => ({
+    restart: vi.fn(async () => true),
+    pending: false,
+  }),
+}));
+
 vi.mock("@/hooks/useServices.js", () => ({
   useComposerClientNamespace: () => "desktop",
   useOptionalServices: () => null,
@@ -350,7 +360,16 @@ vi.mock("@/v4/composer/useDraftConfigControl.js", async (importOriginal) => {
       handleDraftSelectModel: draftConfigMock.handleDraftSelectModel,
       handleDraftSelectThought: draftConfigMock.handleDraftSelectThought,
       handleDraftSwitchMode: draftConfigMock.handleDraftSwitchMode,
-      promoteComposerDraft: vi.fn(),
+      // 修复依据：上游 v3.17.2 useDraftConfigControl 扩展了草稿生命周期 API；
+      // promoteComposerDraft 改为返回 boolean（owner 未换血时 true 才继续 onSessionCreated），
+      // observeDraftPermissionGrant 会在预热会话首帧 effect 中同步调用，缺桩会 TypeError。
+      promoteComposerDraft: vi.fn(() => true),
+      composerDraftScopeToken: Symbol("composer-draft-scope-token"),
+      stageComposerContent: vi.fn(),
+      captureComposerContentLifecycleCommit: vi.fn(() => vi.fn()),
+      captureComposerSubmissionDraftTransaction: vi.fn(() => ({})),
+      persistComposerContent: vi.fn(),
+      observeDraftPermissionGrant: vi.fn(),
       replaceComposerDraft: vi.fn(),
       updateComposerContent: vi.fn(),
     }),
@@ -3306,7 +3325,10 @@ describe("SessionPane Plan picker action", () => {
     const root = await renderPane(props);
     const callsBefore = mocks.sendCommand.mock.calls.length;
     const action = captured.composerProps?.appSlashCommands?.find((item) => item.value === "plan");
-    expect(action).toMatchObject({ label: "计划模式", description: "开启计划模式" });
+    // 修复依据：上游 v3.17.2 移除了 planAction 的 label（chat.slash.app.plan.label 文案已删除），
+    // AppSlashCommand.label 变为可选，省略时保留斜杠命令形式展示。
+    expect(action).toMatchObject({ description: "开启计划模式" });
+    expect(action).not.toHaveProperty("label");
     await act(async () => {
       action?.run();
       action?.run();

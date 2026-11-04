@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { resolveRemoteConnectionPresentation } from "@/lib/remoteConnectionPresentation.js";
 import { createElement } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Emitter } from "@zcode/rpc";
 import type { SourceServerManagementSnapshot } from "@zcode/shared";
@@ -89,6 +89,14 @@ function expectNoRawPlaceholders(container: HTMLElement) {
   expect(container.textContent ?? "").not.toMatch(/\{\w+\}/u);
 }
 
+// 修复依据：上游 v3.17.2（RDUX-13）将设备行重构为折叠式 SourceServerDeviceRow，
+// 连接信息、项目列表与更新横幅都渲染在展开区（data-device-details），需先点击行首切换按钮展开。
+function expandFirstDevice(container: HTMLElement) {
+  const toggle = container.querySelector("[data-source-server-toggle]");
+  if (!toggle) throw new Error("device toggle not found");
+  fireEvent.click(toggle);
+}
+
 describe("SourceServerManagementPanel placeholder values", () => {
   it("renders version, offline relative time and at most three deduplicated project names", async () => {
     const identityA = `remote:server:${sourceServerId}:/srv/a`;
@@ -144,6 +152,8 @@ describe("SourceServerManagementPanel placeholder values", () => {
 
     const { container } = renderPanel(snapshot);
 
+    await screen.findByText("devbox");
+    expandFirstDevice(container);
     expect(await screen.findByRole("button", { name: "b" })).toBeTruthy();
     expect(container.querySelectorAll("[data-device-project]")).toHaveLength(3);
     expect(screen.queryByText("+2")).toBeNull();
@@ -193,9 +203,11 @@ describe("SourceServerManagementPanel placeholder values", () => {
 
     const { container } = renderPanel(snapshot);
 
+    // 折叠行首 meta 先显示可更新版本；versionDetails 在展开区的更新横幅内，展开后再断言。
     expect(await screen.findByText("可更新到 v3.8.2")).toBeTruthy();
+    expandFirstDevice(container);
     expect(
-      screen.getByText("当前 v3.8.1 · 最低兼容 v3.7.0 · 更新期间远程任务会短暂中断"),
+      await screen.findByText("当前 v3.8.1 · 最低兼容 v3.7.0 · 更新期间远程任务会短暂中断"),
     ).toBeTruthy();
     expectNoRawPlaceholders(container);
   });

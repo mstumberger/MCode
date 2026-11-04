@@ -71,6 +71,9 @@ describe("server info HTTP endpoint", () => {
         desktopContinuous: true,
         websocketRpc: true,
         processResourceTelemetry: true,
+        // 修复依据：上游 v3.17.2 新增 remoteConversationTelemetry 能力位
+        // （packages/server/src/http.ts），server-info 需如实返回。
+        remoteConversationTelemetry: true,
       },
     });
   });

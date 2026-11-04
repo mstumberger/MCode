@@ -68,11 +68,17 @@ describe("terminalPanelState", () => {
     expect(afterClosingFirst.sessions[second.id]?.index).toBe(2);
   });
 
-  it("requests closing the panel without deleting the only session", () => {
+  it("requests closing the panel and still deletes the only session descriptor", () => {
     const state = createState([createSession("terminal:1", 1)]);
 
+    // 修复依据：上游 v3.17.2 单 tab 关闭不再只收起保活面板；closeTerminalSession
+    // 会删除唯一 session descriptor 与 workspace 条目，让 TerminalSession 卸载并
+    // 执行 PTY dispose（面板收起由调用方按 close-panel 动作处理）。
     expect(getTerminalSessionCloseAction(state, "terminal:1")).toBe("close-panel");
-    expect(closeTerminalSession(state, "terminal:1")).toBe(state);
+    expect(closeTerminalSession(state, "terminal:1")).toEqual({
+      sessions: {},
+      workspaces: {},
+    });
   });
 
   it("removes a selected session and activates its previous neighbor", () => {

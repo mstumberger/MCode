@@ -48,11 +48,13 @@ describe("telemetry privacy boundary", () => {
       status: "fail",
     });
     const safe = sanitizeTelemetryEventDetail("agent_step", detail);
-    expect(safe).toEqual({ ...detail, error_msg: "[redacted]" });
+    // 修复依据：上游 v3.17.2 起 agent_step 明细补齐 ui_mode 维度（缺省 "unknown"）。
+    expect(safe).toEqual({ ...detail, error_msg: "[redacted]", ui_mode: "unknown" });
     expect(detail.error_msg).toBe("secret");
     expect(sanitizeTelemetryEventDetail("agent_step", safe)).toEqual(safe);
     expect(sanitizeTelemetryEventDetail("agent_step", { error_msg: "" })).toEqual({
       error_msg: "",
+      ui_mode: "unknown",
     });
     expect(sanitizeTelemetryEventDetail("session_create", { create_source: "session" })).toEqual({
       create_source: "session",

@@ -97,6 +97,13 @@ vi.mock("@/v4/OffPeakNewTaskEntry.js", () => ({
   OffPeakNewTaskEntry: () => null,
 }));
 
+// 修复依据：上游 v3.17.2 SessionPane 新增 useSessionRuntimeRestart（内部经
+// useWorkspaceServices 依赖 TabStoreProvider 上下文）；本用例只验证到期采样链路，
+// 与该重启链路无关，桩掉以维持无 Provider 渲染。
+vi.mock("@/app-shell/useWorkspaceSessionReload.js", () => ({
+  useSessionRuntimeRestart: () => ({ pending: false, restart: () => Promise.resolve(false) }),
+}));
+
 vi.mock("@/v4/ConversationDraftSuggestedPromptsContainer.js", () => ({
   ConversationDraftSuggestedPromptsContainer: () => null,
 }));

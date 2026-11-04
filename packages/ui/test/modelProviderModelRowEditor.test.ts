@@ -204,6 +204,25 @@ function createProvider(
 }
 
 describe("ProviderModelsSection compact model rows", () => {
+  // 修复依据：上游 v3.17.2 起供应商重命名移入 ⋯ 下拉菜单：点击菜单项后菜单关闭，
+  // Radix FocusScope 在内容卸载后的 setTimeout(0) 中派发 onCloseAutoFocus，此时才调用
+  // onStartEditName 挂载并聚焦名称输入框。Radix 触发器不响应 click（只认 pointerDown/键盘），
+  // fake timers 下还需手动推进定时器才会派发 onCloseAutoFocus。
+  async function startProviderRename(): Promise<void> {
+    // Radix 触发器对 pointerDown 同步开菜单（fireEvent 已包 act，内容同步挂载）；
+    // fake timers 下不能 await findBy*（waitFor 依赖真实宏任务刷新 act 队列），必须用同步查询。
+    fireEvent.pointerDown(screen.getByTestId("model-provider-actions-button"));
+    fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    await act(async () => {
+      if (vi.isFakeTimers()) {
+        vi.advanceTimersByTime(1_000);
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    });
+    screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
+  }
+
   it.each(["individual-coding-plan", "team-coding-plan", "start-plan", "manual", "standard"])(
     "设置页共享视觉标判断，连接=%s",
     (mode) => {
@@ -650,8 +669,7 @@ describe("ProviderModelsSection compact model rows", () => {
         nameEditable: true,
       }),
     );
-    fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
-    fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    await startProviderRename();
     const nameInput = screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
     fireEvent.compositionStart(nameInput);
     fireEvent.change(nameInput, {
@@ -677,8 +695,7 @@ describe("ProviderModelsSection compact model rows", () => {
     const view = render(
       createElement(InlineEditableProviderCard, { provider: createProvider(), onSave }),
     );
-    fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
-    fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    await startProviderRename();
     const input = screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
     fireEvent.change(input, { target: { value: "Cancelled" } });
     fireEvent.change(screen.getByTestId(TID_MODEL_PROVIDER_API_KEY_INPUT), {
@@ -707,7 +724,12 @@ describe("ProviderModelsSection compact model rows", () => {
     fireEvent.click(screen.getByTestId("model-provider-header"));
     fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
     expect(onSave).not.toHaveBeenCalled();
+    // 修复依据：上游 v3.17.2 起重命名输入框在菜单关闭（onCloseAutoFocus）的 setTimeout 后才挂载；
+    // 上面 Enter 已打开菜单，直接点击重命名项（再 pointerDown 会把已开菜单 toggle 关闭）。
     fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     const input = screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
     input.focus();
     fireEvent.change(input, { target: { value: "Confirmed" } });
@@ -758,8 +780,9 @@ describe("ProviderModelsSection compact model rows", () => {
     const view = renderWithProviderFeedback(
       createElement(InlineEditableProviderCard, { provider, onSave }),
     );
-    fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
-    fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    // 修复依据：上游 v3.17.2 起重命名经 ⋯ 菜单触发（本用例为真实定时器，
+    // 等待菜单关闭后的 onCloseAutoFocus 宏任务），输入框届时挂载并聚焦。
+    await startProviderRename();
     const input = screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT);
     fireEvent.change(input, { target: { value: "Retry name" } });
     fireEvent.blur(input);
@@ -767,8 +790,7 @@ describe("ProviderModelsSection compact model rows", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     expect(onSave.mock.calls[0]?.[0]).toEqual(onSave.mock.calls[1]?.[0]);
-    fireEvent.keyDown(screen.getByTestId("model-provider-actions-button"), { key: "Enter" });
-    fireEvent.click(screen.getByTestId(TID_MODEL_PROVIDER_NAME_EDIT_BUTTON));
+    await startProviderRename();
     fireEvent.change(screen.getByTestId(TID_MODEL_PROVIDER_NAME_INPUT), {
       target: { value: "Discard on switch" },
     });

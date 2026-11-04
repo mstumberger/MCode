@@ -1596,14 +1596,16 @@ describe("createWebRemoteControlManager external relay", () => {
     const firstReplayCount = sentPayloads.filter(
       (payload) => payload.zcode_type === "bridge-degraded",
     ).length;
+    // 修复依据：上游 v3.17.2 起每次 send-ready 都重送未接管的失效通知
+    // （后台可能丢弃首次通知，Web 按 bridge 幂等消费），同 socket 不再去重。
     emitTransportSendReady("same-socket");
     expect(sentPayloads.filter((payload) => payload.zcode_type === "bridge-degraded")).toHaveLength(
-      firstReplayCount,
+      firstReplayCount + 1,
     );
 
     emitTransportSendReady("reconnected-socket");
     expect(sentPayloads.filter((payload) => payload.zcode_type === "bridge-degraded")).toHaveLength(
-      firstReplayCount + 1,
+      firstReplayCount + 2,
     );
   });
 

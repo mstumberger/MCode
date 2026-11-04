@@ -1,6 +1,7 @@
 import { ChannelClient, ChannelServer, createQueuePair, Emitter } from "@zcode/rpc";
 import {
   IBroadcastService,
+  IFeedbackService,
   IProjectService,
   IRemoteProjectService,
   ServiceCollection,
@@ -15,7 +16,10 @@ it("MRO02：窗口目录 RPC 与原工作区读写和广播隔离", async () => 
   const remove = vi.fn(async () => {});
   const windowServices = new ServiceCollection()
     .register(IProjectService, {
-      readTree: async () => ({ projects: [{ id: "local" }, { id: "pinned" }], tasks: [] }),
+      readTree: async () => ({
+        projects: [{ id: "local" }, { id: "pinned" }],
+        tasks: [],
+      }),
       saveProject: save,
     } as never)
     .register(IRemoteProjectService, {
@@ -23,6 +27,10 @@ it("MRO02：窗口目录 RPC 与原工作区读写和广播隔离", async () => 
       removeEntry: remove,
     } as never)
     .register(IBroadcastService, { onMessage: messages.event } as never);
+  // 修复依据：上游 v3.17.2 起 web-remote-replayable + remote scope 的 attachment 会从
+  // windowServices 取 IFeedbackService 并发布 feedback 频道（手机远端复用控制端账号与诊断日志），
+  // 未注册时 exposeWindowHostAttachmentServices 直接抛 Service not registered: feedback。
+  windowServices.register(IFeedbackService, {} as never);
   const services = new ServiceCollection()
     .register(IProjectService, {
       readTree: async () => ({ projects: [{ id: "source-only" }], tasks: [] }),
@@ -41,10 +49,14 @@ it("MRO02：窗口目录 RPC 与原工作区读写和广播隔离", async () => 
       attachmentScope: { kind: "remote" },
       windowServices,
     });
-    const access = new RemoteServiceAccess(client, { windowProjectDirectory: true });
+    const access = new RemoteServiceAccess(client, {
+      windowProjectDirectory: true,
+    });
     expect(access.windowProjectDirectory).toBeDefined();
     const directory = access.windowProjectDirectory!;
-    expect(await directory.changesService.getCapabilities()).toEqual({ version: 1 });
+    expect(await directory.changesService.getCapabilities()).toEqual({
+      version: 1,
+    });
     expect((await directory.projectService.readTree()).projects.map((p) => p.id)).toEqual([
       "local",
       "pinned",
@@ -52,7 +64,10 @@ it("MRO02：窗口目录 RPC 与原工作区读写和广播隔离", async () => 
     expect((await access.projectService.readTree()).projects.map((p) => p.id)).toEqual([
       "source-only",
     ]);
-    expect(await access.remoteProjectService.readDirectory()).toEqual({ hosts: [], entries: [] });
+    expect(await access.remoteProjectService.readDirectory()).toEqual({
+      hosts: [],
+      entries: [],
+    });
     await directory.projectService.saveProject({ roots: [] });
     await directory.remoteProjectService.removeEntry("retained");
     expect(save).toHaveBeenCalledOnce();
@@ -91,10 +106,14 @@ it.each(["desktop-continuous", "web-remote-replayable"] as const)(
         server,
         services: new ServiceCollection(),
         clientMode,
-        attachmentScope: { kind: clientMode === "desktop-continuous" ? "remote" : "local" },
+        attachmentScope: {
+          kind: clientMode === "desktop-continuous" ? "remote" : "local",
+        },
         windowServices: new ServiceCollection(),
       });
-      const access = new RemoteServiceAccess(client, { windowProjectDirectory: true });
+      const access = new RemoteServiceAccess(client, {
+        windowProjectDirectory: true,
+      });
       await expect(access.windowProjectDirectory!.changesService.getCapabilities()).rejects.toThrow(
         "window-project-changes",
       );

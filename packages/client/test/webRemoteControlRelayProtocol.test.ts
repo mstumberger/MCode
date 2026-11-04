@@ -617,7 +617,7 @@ describe("createAcknowledgedWebRemoteControlRelayProtocol", () => {
     right.dispose();
   });
 
-  it("degrades before sending any fragment when exact replay bytes exceed 8 MiB", () => {
+  it("degrades before sending any fragment when exact replay bytes exceed the 32 MiB budget", () => {
     let sends = 0;
     const faults: string[] = [];
     const adapter = createAcknowledgedWebRemoteControlRelayProtocol({
@@ -630,16 +630,28 @@ describe("createAcknowledgedWebRemoteControlRelayProtocol", () => {
     adapter.onDegraded((fault) => {
       faults.push(fault.reasonCode);
     });
-    const bytes = new Uint8Array(6_300_000);
-    const exactOuterBytes = encodeAcknowledgedMessage(bytes).reduce(
-      (total, frame) => total + measureWebRemoteControlRpcRelayEnvelopeBytes(frame),
-      0,
-    );
-    expect(exactOuterBytes).toBeGreaterThan(8 * 1024 * 1024);
+    const outerBytesOf = (bytes: Uint8Array) =>
+      encodeAcknowledgedMessage(bytes).reduce(
+        (total, frame) => total + measureWebRemoteControlRpcRelayEnvelopeBytes(frame),
+        0,
+      );
+    // 修复依据：上游 v3.17.2 将 replayBufferMaxBytes 从 8 MiB 提升为 2×16 MiB（32 MiB）：
+    // 单条合法 16 MiB RPC 的 Base64/JSON 外壳批次（约 21.35 MiB）不再被误拒，
+    // 超预算只能由未确认批次累计触发。
+    const admitted = new Uint8Array(16 * 1024 * 1024);
+    const overflow = new Uint8Array(12 * 1024 * 1024);
+    const admittedOuterBytes = outerBytesOf(admitted);
+    const overflowOuterBytes = outerBytesOf(overflow);
+    expect(admittedOuterBytes).toBeLessThanOrEqual(32 * 1024 * 1024);
+    expect(admittedOuterBytes + overflowOuterBytes).toBeGreaterThan(32 * 1024 * 1024);
 
-    adapter.protocol.send(VSBuffer.wrap(bytes));
+    adapter.protocol.send(VSBuffer.wrap(admitted));
+    const sendsAfterAdmitted = sends;
+    expect(sendsAfterAdmitted).toBeGreaterThan(0);
 
-    expect(sends).toBe(0);
+    adapter.protocol.send(VSBuffer.wrap(overflow));
+
+    expect(sends).toBe(sendsAfterAdmitted);
     expect(adapter.unacknowledgedBytes).toBe(0);
     expect(faults).toEqual(["remote.rpcFrame.replayBufferExceeded"]);
     adapter.dispose();
@@ -760,7 +772,7 @@ describe("createAcknowledgedWebRemoteControlRelayProtocol", () => {
     adapter.dispose();
   });
 
-  it("does not let public options loosen the 8MiB replay or 30s assembly hard limits", async () => {
+  it("does not let public options loosen the 32MiB replay or 30s assembly hard limits", async () => {
     let sends = 0;
     const replayFaults: string[] = [];
     const replay = createAcknowledgedWebRemoteControlRelayProtocol({
@@ -774,8 +786,13 @@ describe("createAcknowledgedWebRemoteControlRelayProtocol", () => {
     replay.onDegraded((fault) => {
       replayFaults.push(fault.reasonCode);
     });
-    replay.protocol.send(VSBuffer.wrap(new Uint8Array(6_300_000)));
-    expect(sends).toBe(0);
+    // 修复依据：上游 v3.17.2 的 replay 硬上限提升为 32 MiB；单条 16 MiB RPC 合法入队，
+    // 需第二条未确认批次累计超过 32 MiB 才会触发 replayBufferExceeded。
+    replay.protocol.send(VSBuffer.wrap(new Uint8Array(16 * 1024 * 1024)));
+    const sendsAfterFirst = sends;
+    expect(sendsAfterFirst).toBeGreaterThan(0);
+    replay.protocol.send(VSBuffer.wrap(new Uint8Array(16 * 1024 * 1024)));
+    expect(sends).toBe(sendsAfterFirst);
     expect(replayFaults).toEqual(["remote.rpcFrame.replayBufferExceeded"]);
     replay.dispose();
 

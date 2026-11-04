@@ -3,7 +3,7 @@
 //
 // 覆盖三条核心交互契约：
 //  1. did-attach → 尽早上报 guest webContentsId 给 main（browserViewAttachGuest）；
-//  2. 地址栏回车（form submit）→ 经 normalizeBrowserUrl 归一化后调 webview.loadURL；
+//  2. 地址栏回车（form submit）→ 经 normalizeBrowserUrl 归一化后交 main 准入导航（browserViewLoadUrl）；
 //  3. 导航按钮由 webview 状态驱动（canGoBack）并直接调用 webview.goBack。
 //
 // 注意：根 vitest 只收 packages/*/test/**/*.test.ts（.ts，非 .tsx），故本文件用
@@ -48,6 +48,9 @@ const h = vi.hoisted(() => {
   const reportResidency = vi.fn().mockResolvedValue(undefined);
   const screenshotSurfaceReady = vi.fn();
   const updateViewport = vi.fn().mockResolvedValue(undefined);
+  // 修复依据：上游 v3.17.2 起 human 导航经 main 准入（platform.browserViewLoadUrl({webContentsId,url})），
+  // renderer 不再直接调 webview.loadUrl；mock 该入口即可断言归一化后的导航契约。
+  const loadUrl = vi.fn().mockResolvedValue(undefined);
   const viewportListeners = new Set<
     (payload: {
       workspaceKey: string;
@@ -74,6 +77,7 @@ const h = vi.hoisted(() => {
   const platform = {
     browserViewAttachGuest: attachGuest,
     browserViewDetachGuest: detachGuest,
+    browserViewLoadUrl: loadUrl,
     browserViewReportResidency: reportResidency,
     browserViewScreenshotSurfaceReady: screenshotSurfaceReady,
     browserViewUpdateViewport: updateViewport,
@@ -94,6 +98,7 @@ const h = vi.hoisted(() => {
   return {
     attachGuest,
     detachGuest,
+    loadUrl,
     openExternal,
     platform,
     reportResidency,
@@ -336,6 +341,8 @@ beforeEach(() => {
   h.attachGuest.mockClear();
   h.detachGuest.mockReset();
   h.detachGuest.mockResolvedValue(true);
+  h.loadUrl.mockReset();
+  h.loadUrl.mockResolvedValue(undefined);
   h.openExternal.mockClear();
   h.reportResidency.mockClear();
   h.screenshotSurfaceReady.mockClear();
@@ -400,8 +407,14 @@ describe("UnifiedBrowserView (<webview>)", () => {
     fireEvent.submit(addressInput.closest("form")!);
     expect(screen.queryByText("browser.empty")).toBeNull();
     const webview = stubWebview(screen.getByTestId(TID_BROWSER_WEBVIEW));
+    // 修复依据：上游 v3.17.2 起排队 URL 在 did-attach 最早消费（dom-ready 仅版本兼容兜底）。
+    fireDidAttach(webview);
     fireDomReady(webview);
-    expect(webview.loadURL).toHaveBeenCalledWith("https://example.com");
+    // 修复依据：上游 v3.17.2 起导航经 main 准入（browserViewLoadUrl），不再直调 webview.loadURL。
+    expect(h.loadUrl).toHaveBeenCalledWith({
+      webContentsId: 42,
+      url: "https://example.com",
+    });
   });
 
   it("在 guest attach 前声明 popup 权限", () => {
@@ -747,8 +760,8 @@ describe("UnifiedBrowserView (<webview>)", () => {
       sessionId: "task-a",
       workspaceKey: "remote:ssh:dev:/repo",
     });
-    const loadURL = (recoveredWebview as unknown as { loadURL: ReturnType<typeof vi.fn> }).loadURL;
-    expect(loadURL).toHaveBeenCalledWith(restoreUrl);
+    // 修复依据：上游 v3.17.2 起恢复导航经 main 准入（browserViewLoadUrl），按替代 guest 的 id 调用。
+    expect(h.loadUrl).toHaveBeenLastCalledWith({ webContentsId: 43, url: restoreUrl });
   });
 
   it("main 未确认 CDP detach 时保留旧 webview 并转为可重试失败态", async () => {
@@ -793,6 +806,8 @@ describe("UnifiedBrowserView (<webview>)", () => {
   it("guest 进程级失败盖过加载失败错误态", () => {
     renderView("browser:guest-over-load", "task-a");
     const webview = stubWebview(screen.getByTestId(TID_BROWSER_WEBVIEW));
+    // 修复依据：上游 v3.17.2 起排队 URL 在 did-attach 最早消费（dom-ready 仅版本兼容兜底）。
+    fireDidAttach(webview);
     fireDomReady(webview);
     fireDidFailLoad(webview, {
       errorCode: -202,
@@ -831,11 +846,11 @@ describe("UnifiedBrowserView (<webview>)", () => {
       validatedURL: restoreUrl,
     });
 
-    const loadURL = (webview as unknown as { loadURL: ReturnType<typeof vi.fn> }).loadURL;
-    loadURL.mockClear();
+    // 修复依据：上游 v3.17.2 起重走地址经 main 准入（browserViewLoadUrl），不再直调 webview.loadURL。
+    h.loadUrl.mockClear();
     fireEvent.click(screen.getByText("browser.loadError.retry"));
 
-    expect(loadURL).toHaveBeenCalledWith(restoreUrl);
+    expect(h.loadUrl).toHaveBeenCalledWith({ webContentsId: 42, url: restoreUrl });
     // 同一个 guest 继续用，不能因为一次导航失败就重建并丢掉网页历史。
     expect(screen.getByTestId(TID_BROWSER_WEBVIEW)).toBe(webview);
   });
@@ -892,6 +907,8 @@ describe("UnifiedBrowserView (<webview>)", () => {
   it("guest 启动失败时展示失败态与诊断信息，不再裸露容器底色", () => {
     renderView("browser:launch-failed-surface", "task-a");
     const webview = stubWebview(screen.getByTestId(TID_BROWSER_WEBVIEW));
+    // 修复依据：上游 v3.17.2 起排队 URL 在 did-attach 最早消费（dom-ready 仅版本兼容兜底）。
+    fireDidAttach(webview);
     fireDomReady(webview);
 
     fireRenderProcessGone(webview, "launch-failed", 72);
@@ -946,8 +963,8 @@ describe("UnifiedBrowserView (<webview>)", () => {
         webContentsId: 43,
       }),
     );
-    const loadURL = (retriedWebview as unknown as { loadURL: ReturnType<typeof vi.fn> }).loadURL;
-    expect(loadURL).toHaveBeenCalledWith(restoreUrl);
+    // 修复依据：上游 v3.17.2 起重建后的恢复导航经 main 准入（browserViewLoadUrl）。
+    expect(h.loadUrl).toHaveBeenLastCalledWith({ webContentsId: 43, url: restoreUrl });
   });
 
   it("失败后直接输入新 URL 能退出失败态并用新 guest 导航", async () => {
@@ -969,9 +986,11 @@ describe("UnifiedBrowserView (<webview>)", () => {
 
     stubWebview(replacementWebview, { getWebContentsId: vi.fn(() => 44) });
     fireDomReady(replacementWebview);
-    const loadURL = (replacementWebview as unknown as { loadURL: ReturnType<typeof vi.fn> })
-      .loadURL;
-    expect(loadURL).toHaveBeenCalledWith("https://example.com/after-failure");
+    // 修复依据：上游 v3.17.2 起失败后的新地址导航经 main 准入（browserViewLoadUrl）。
+    expect(h.loadUrl).toHaveBeenLastCalledWith({
+      webContentsId: 44,
+      url: "https://example.com/after-failure",
+    });
   });
 
   it("失败态的外部 navigationRequest 重建 guest，并在导航接管后回执", async () => {
@@ -1011,10 +1030,12 @@ describe("UnifiedBrowserView (<webview>)", () => {
     const navigationFinished = new Promise<void>((resolve) => {
       finishNavigation = resolve;
     });
-    const loadURL = vi.fn(() => navigationFinished);
-    stubWebview(replacementWebview, { loadURL });
+    // 修复依据：上游 v3.17.2 起导航接管以 main 准入（browserViewLoadUrl）完成为准，
+    // 用可控 Promise 桩住该入口，验证回执只在准入完成后发出。
+    stubWebview(replacementWebview);
+    h.loadUrl.mockReturnValueOnce(navigationFinished);
     fireDomReady(replacementWebview);
-    expect(loadURL).toHaveBeenCalledWith(request.url);
+    expect(h.loadUrl).toHaveBeenCalledWith({ webContentsId: 42, url: request.url });
     expect(onNavigationRequestHandled).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -1155,10 +1176,10 @@ describe("UnifiedBrowserView (<webview>)", () => {
     });
   });
 
-  it("地址栏回车触发 webview.loadURL（url 经 normalize）", () => {
+  it("地址栏回车经 main 准入导航（url 经 normalize）", () => {
     renderView();
     const el = stubWebview(screen.getByTestId(TID_BROWSER_WEBVIEW));
-    // 先 dom-ready 让 isReady=true，否则导航会排队而非立即 loadURL。
+    // 先 dom-ready 让 isReady=true，否则导航会排队而非立即触发 browserViewLoadUrl。
     fireDomReady(el);
 
     const input = screen.getByTestId(TID_BROWSER_ADDRESS_INPUT) as HTMLInputElement;
@@ -1168,10 +1189,13 @@ describe("UnifiedBrowserView (<webview>)", () => {
     expect(form).not.toBeNull();
     fireEvent.submit(form as HTMLFormElement);
 
-    const loadURL = (el as unknown as { loadURL: ReturnType<typeof vi.fn> }).loadURL;
-    expect(loadURL).toHaveBeenCalledTimes(1);
+    // 修复依据：上游 v3.17.2 起回车导航经 main 准入（browserViewLoadUrl），不再直调 webview.loadURL；
     // normalizeBrowserUrl 给无协议输入补全 scheme（公网域名 → https://example.com）。
-    expect(loadURL.mock.calls[0][0]).toBe("https://example.com");
+    expect(h.loadUrl).toHaveBeenCalledTimes(1);
+    expect(h.loadUrl.mock.calls[0][0]).toEqual({
+      webContentsId: 42,
+      url: "https://example.com",
+    });
   });
 
   it("后退按钮由 webview.canGoBack 驱动，点击调用 webview.goBack", () => {

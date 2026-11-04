@@ -16,6 +16,12 @@ process.stdin.on("data", (chunk) => {
     buffer = buffer.slice(newline + 1);
     if (!line.trim()) continue;
     const message = JSON.parse(line);
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商；
+    // fake 必须应答，否则用例停在 30s 超时。
+    if (message.method === "runtime/capabilities" && message.id !== undefined) {
+      send({ id: message.id, result: {} });
+      continue;
+    }
     if (message.method !== "session/list" || message.id === undefined) continue;
     send({ id: message.id, result: { sessions: [] } });
     send({

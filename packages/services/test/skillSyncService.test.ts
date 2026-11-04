@@ -5,6 +5,13 @@ import { join } from "node:path";
 import { MAX_SKILL_SCAN_DEPTH, SKILL_SYNC_SIZE_LIMIT_ERROR_CODE } from "@zcode/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSkillSyncService } from "../src/skill-sync/skillSyncService.js";
+import { createSkillSyncArchive } from "../src/skill-sync/skillSyncArchive.js";
+
+// 修复依据：上游 v3.17.2 把技能同步改造成统一的数据同步形状 IDataSyncCategoryService
+// （docs/remote/data-sync.md）：listLocalUserSkillCandidates → listSyncItems、
+// checkRemoteUserSkillWriteAccess → checkSyncWriteAccess、listRemoteUserSkillStatuses →
+// getSyncContentHashes、exportSkillsArchive → exportSyncItems、importSkillsArchive →
+// importSyncItems。以下用例按新合同改写，断言语义保持不变。
 
 async function symlinkSkillDirectory(target: string, linkPath: string) {
   // 修复原因：Windows 普通目录 symlink 依赖开发者模式或管理员权限，CI/本机 pre-push
@@ -59,13 +66,15 @@ describe("skill sync service", () => {
     await writeSkill(home, "review");
     const service = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await service.listLocalUserSkillCandidates();
+    const result = await service.listSyncItems();
 
-    expect(result.candidates).toMatchObject([
+    expect(result.homeDir).toBe(home);
+    expect(result.items).toMatchObject([
       {
+        key: "review",
         name: "review",
-        directoryName: "review",
         description: "review desc",
+        enabled: true,
       },
     ]);
   });
@@ -75,11 +84,13 @@ describe("skill sync service", () => {
     process.env.HOME = remoteHome;
     const service = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await service.checkRemoteUserSkillWriteAccess();
+    const result = await service.checkSyncWriteAccess();
 
+    // 修复依据：上游 v3.17.2 写入预检改为 checkRemoteSyncDirectoriesWriteAccess，
+    // 技能根与 ~/.zcode/cli（config.json 启用状态）都要可写；成功时 path 是目录列表。
     expect(result).toMatchObject({
       ok: true,
-      path: join(remoteHome, ".zcode", "skills"),
+      path: [join(remoteHome, ".zcode", "skills"), join(remoteHome, ".zcode", "cli")].join(", "),
     });
   });
 
@@ -90,7 +101,7 @@ describe("skill sync service", () => {
     await writeFile(join(remoteHome, ".zcode", "skills"), "not a directory");
     const service = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await service.checkRemoteUserSkillWriteAccess();
+    const result = await service.checkSyncWriteAccess();
 
     expect(result.ok).toBe(false);
     expect(result.path).toBe(join(remoteHome, ".zcode", "skills"));
@@ -103,14 +114,14 @@ describe("skill sync service", () => {
     await writeSkill(home, "lark-doc", "lark-doc", ".agents");
     const service = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await service.listLocalUserSkillCandidates();
+    const result = await service.listSyncItems();
 
-    expect(result.candidates).toMatchObject([
+    expect(result.items).toMatchObject([
       {
+        key: "lark-doc",
         name: "lark-doc",
-        directoryName: "lark-doc",
         description: "lark-doc desc",
-        path: join(home, ".agents", "skills", "lark-doc", "SKILL.md"),
+        enabled: true,
       },
     ]);
   });
@@ -125,11 +136,9 @@ describe("skill sync service", () => {
     await writeSkill(home, `${deepPath}/too-deep`);
     const service = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await service.listLocalUserSkillCandidates();
+    const result = await service.listSyncItems();
 
-    expect(result.candidates.map((candidate) => candidate.directoryName)).not.toContain(
-      `${deepPath}/too-deep`,
-    );
+    expect(result.items.map((item) => item.key)).not.toContain("too-deep");
   });
 
   it("deduplicates agents skills already covered by zcode skills", async () => {
@@ -139,10 +148,14 @@ describe("skill sync service", () => {
     await writeSkill(home, "review-agents", "review", ".agents");
     const service = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await service.listLocalUserSkillCandidates();
+    const result = await service.listSyncItems();
 
-    expect(result.candidates.map((candidate) => candidate.directoryName)).toEqual([
-      "review-zcode",
+    // 修复依据：上游 v3.17.2 条目按归一化技能名对齐（key），同一名字只保留一项。
+    expect(result.items.map((item) => item.key)).toEqual(["review"]);
+    // 同名去重时 .zcode 优先：导出 payload 的 directoryName 必须来自 .zcode 目录。
+    const exported = await service.exportSyncItems({ keys: ["review"] });
+    expect(exported.items).toMatchObject([
+      { key: "review", name: "review", directoryName: "review-zcode", enabled: true },
     ]);
   });
 
@@ -155,11 +168,9 @@ describe("skill sync service", () => {
     await symlinkSkillDirectory(sourceDir, join(zcodeRoot, "linked-external"));
     const service = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await service.listLocalUserSkillCandidates();
+    const result = await service.listSyncItems();
 
-    expect(result.candidates.map((candidate) => candidate.directoryName)).toEqual([
-      "linked-external",
-    ]);
+    expect(result.items.map((item) => item.key)).toEqual(["linked-external"]);
   });
 
   it("deduplicates agents skills covered by raw zcode directory names before realpath de-dupe", async () => {
@@ -175,11 +186,9 @@ describe("skill sync service", () => {
     await writeBareSkill(home, "agents-only", ".agents");
     const service = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await service.listLocalUserSkillCandidates();
+    const result = await service.listSyncItems();
 
-    expect(result.candidates.map((candidate) => candidate.directoryName)).toEqual([
-      "aaa-link",
-    ]);
+    expect(result.items.map((item) => item.key)).toEqual(["aaa-link"]);
   });
 
   it("exports nested agents skills preserving their relative directory path", async () => {
@@ -187,24 +196,24 @@ describe("skill sync service", () => {
     process.env.HOME = localHome;
     await writeSkill(localHome, "group/review", "review", ".agents");
     const localService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
-    const candidates = await localService.listLocalUserSkillCandidates();
+    const listed = await localService.listSyncItems();
 
-    expect(candidates.candidates.map((candidate) => candidate.directoryName)).toEqual([
-      "group/review",
-    ]);
+    expect(listed.items.map((item) => item.key)).toEqual(["review"]);
 
-    const archive = await localService.exportSkillsArchive({
-      skillIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    const payload = await localService.exportSyncItems({ keys: ["review"] });
+    expect(payload.items).toMatchObject([{ key: "review", directoryName: "group/review" }]);
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await remoteService.importSkillsArchive({ archive: archive.archive });
+    const result = await remoteService.importSyncItems({
+      payload,
+      items: [{ key: "review", mode: "createOnly" }],
+    });
 
     expect(result.results[0]).toMatchObject({
-      directoryName: "group/review",
-      status: "synced",
+      key: "review",
+      status: "created",
     });
     await expect(
       readFile(join(remoteHome, ".zcode", "skills", "group", "review", "SKILL.md"), "utf-8"),
@@ -219,54 +228,62 @@ describe("skill sync service", () => {
     await mkdir(zcodeRoot, { recursive: true });
     await symlinkSkillDirectory(sourceDir, join(zcodeRoot, "linked-external"));
     const localService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
-    const candidates = await localService.listLocalUserSkillCandidates();
+    const listed = await localService.listSyncItems();
 
-    expect(candidates.candidates).toMatchObject([
+    expect(listed.items).toMatchObject([
       {
+        key: "external",
         name: "external",
-        directoryName: "linked-external",
-        path: join(zcodeRoot, "linked-external", "SKILL.md"),
+        description: "external desc",
       },
     ]);
 
-    const archive = await localService.exportSkillsArchive({
-      skillIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    const payload = await localService.exportSyncItems({ keys: ["external"] });
+    // 归档按候选目录名落位：zcode 里的软链目录以 linked-external 导出。
+    expect(payload.items).toMatchObject([{ key: "external", directoryName: "linked-external" }]);
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await remoteService.importSkillsArchive({ archive: archive.archive });
+    const result = await remoteService.importSyncItems({
+      payload,
+      items: [{ key: "external", mode: "createOnly" }],
+    });
 
     expect(result.results[0]).toMatchObject({
-      directoryName: "linked-external",
-      status: "synced",
+      key: "external",
+      status: "created",
     });
     await expect(
       readFile(join(remoteHome, ".zcode", "skills", "linked-external", "SKILL.md"), "utf-8"),
     ).resolves.toContain("name: external");
   });
 
-  it("imports missing skills and skips existing directory names", async () => {
+  it("imports missing skills and reports conflict for existing names on re-import", async () => {
     const localHome = makeHome();
     process.env.HOME = localHome;
     await writeSkill(localHome, "review");
     const localService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
-    const candidates = await localService.listLocalUserSkillCandidates();
-    const archive = await localService.exportSkillsArchive({
-      skillIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    const payload = await localService.exportSyncItems({ keys: ["review"] });
 
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     await writeSkill(remoteHome, "existing");
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const first = await remoteService.importSkillsArchive({ archive: archive.archive });
-    const second = await remoteService.importSkillsArchive({ archive: archive.archive });
+    const first = await remoteService.importSyncItems({
+      payload,
+      items: [{ key: "review", mode: "createOnly" }],
+    });
+    // 修复依据：上游 v3.17.2 createOnly 模式下目标端已有同名技能不再写「skipped」，
+    // 而是返回 conflict，由调用方刷新列表后重试。
+    const second = await remoteService.importSyncItems({
+      payload,
+      items: [{ key: "review", mode: "createOnly" }],
+    });
 
-    expect(first.results[0]).toMatchObject({ directoryName: "review", status: "synced" });
-    expect(second.results[0]).toMatchObject({ directoryName: "review", status: "skipped" });
+    expect(first.results[0]).toMatchObject({ key: "review", status: "created" });
+    expect(second.results[0]).toMatchObject({ key: "review", status: "conflict" });
     await expect(
       readFile(join(remoteHome, ".zcode", "skills", "review", "SKILL.md"), "utf-8"),
     ).resolves.toContain("name: review");
@@ -278,18 +295,12 @@ describe("skill sync service", () => {
     await writeSkill(remoteHome, "remote-review-copy", "review");
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const status = await remoteService.listRemoteUserSkillStatuses({
-      directoryNames: ["review"],
-      skills: [{ directoryName: "review", name: "review" }],
-    });
+    // 修复依据：上游 v3.17.2 远端存在性改由 getSyncContentHashes 表达：
+    // 目标端能按名字 key 找到该项并算出哈希即「已存在」。
+    const status = await remoteService.getSyncContentHashes({ keys: ["review"] });
 
-    expect(status.statuses).toEqual([
-      {
-        directoryName: "review",
-        exists: true,
-        path: join(remoteHome, ".zcode", "skills", "remote-review-copy"),
-      },
-    ]);
+    expect(Object.keys(status.hashes)).toEqual(["review"]);
+    expect(status.hashes.review).toBeTruthy();
   });
 
   it("marks remote agents skills as existing when the same skill name exists there", async () => {
@@ -298,94 +309,115 @@ describe("skill sync service", () => {
     await writeSkill(remoteHome, "agents-review-copy", "review", ".agents");
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const status = await remoteService.listRemoteUserSkillStatuses({
-      directoryNames: ["review"],
-      skills: [{ directoryName: "review", name: "review" }],
-    });
+    const status = await remoteService.getSyncContentHashes({ keys: ["review"] });
 
-    expect(status.statuses).toEqual([
-      {
-        directoryName: "review",
-        exists: true,
-        path: join(remoteHome, ".agents", "skills", "agents-review-copy"),
-      },
-    ]);
+    expect(Object.keys(status.hashes)).toEqual(["review"]);
+    expect(status.hashes.review).toBeTruthy();
   });
 
-  it("rejects remote status directory names that escape the skill root", async () => {
+  it("rejects sync payload directory names that escape the skill root", async () => {
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     await mkdir(join(remoteHome, ".ssh"), { recursive: true });
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
+    // 修复依据：上游 v3.17.2 删除了按 directoryNames 查询远端状态的 RPC；
+    // 路径逃逸防护（resolveSkillSyncPathWithin）移到导入 payload 的 directoryName 校验。
+    const payload = {
+      archive: await createSkillSyncArchive([]),
+      sourceHomeDir: remoteHome,
+      items: [
+        {
+          key: "escape",
+          name: "escape",
+          directoryName: "../../.ssh",
+          enabled: true,
+        },
+      ],
+    };
+
     await expect(
-      remoteService.listRemoteUserSkillStatuses({
-        directoryNames: ["../../.ssh"],
+      remoteService.importSyncItems({
+        payload,
+        items: [{ key: "escape", mode: "createOnly" }],
       }),
     ).rejects.toThrow("unsafe skill sync path");
   });
 
-  it("rejects remote status skill metadata directory names that escape the skill root", async () => {
+  it("rejects sync payload skill metadata directory names that escape the skill root", async () => {
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
+    // 修复依据：同上，逃逸校验统一落在导入路径解析（skillSyncPath）上。
+    const payload = {
+      archive: await createSkillSyncArchive([]),
+      sourceHomeDir: remoteHome,
+      items: [
+        {
+          key: "escape",
+          name: "escape",
+          directoryName: "../review",
+          enabled: true,
+        },
+      ],
+    };
+
     await expect(
-      remoteService.listRemoteUserSkillStatuses({
-        directoryNames: ["review"],
-        skills: [{ directoryName: "../review", name: "review" }],
+      remoteService.importSyncItems({
+        payload,
+        items: [{ key: "escape", mode: "createOnly" }],
       }),
     ).rejects.toThrow("unsafe skill sync path");
   });
 
-  it("skips imports when the remote already has the same skill name in another directory", async () => {
+  it("reports conflict when the remote already has the same skill name in another directory", async () => {
     const localHome = makeHome();
     process.env.HOME = localHome;
     await writeSkill(localHome, "local-review", "review");
     const localService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
-    const candidates = await localService.listLocalUserSkillCandidates();
-    const archive = await localService.exportSkillsArchive({
-      skillIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    const payload = await localService.exportSyncItems({ keys: ["review"] });
 
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     await writeSkill(remoteHome, "remote-review-copy", "review");
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await remoteService.importSkillsArchive({ archive: archive.archive });
+    const result = await remoteService.importSyncItems({
+      payload,
+      items: [{ key: "review", mode: "createOnly" }],
+    });
 
+    // 修复依据：上游 v3.17.2 目标端已有同名技能时返回 conflict（不再写 skipped/path）。
     expect(result.results[0]).toMatchObject({
-      directoryName: "local-review",
-      status: "skipped",
-      path: join(remoteHome, ".zcode", "skills", "remote-review-copy"),
+      key: "review",
+      status: "conflict",
     });
     await expect(
       readFile(join(remoteHome, ".zcode", "skills", "local-review", "SKILL.md"), "utf-8"),
     ).rejects.toThrow();
   });
 
-  it("skips imports when the remote agents root already has the same skill name", async () => {
+  it("reports conflict when the remote agents root already has the same skill name", async () => {
     const localHome = makeHome();
     process.env.HOME = localHome;
     await writeSkill(localHome, "local-review", "review");
     const localService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
-    const candidates = await localService.listLocalUserSkillCandidates();
-    const archive = await localService.exportSkillsArchive({
-      skillIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    const payload = await localService.exportSyncItems({ keys: ["review"] });
 
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     await writeSkill(remoteHome, "agents-review-copy", "review", ".agents");
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
 
-    const result = await remoteService.importSkillsArchive({ archive: archive.archive });
+    const result = await remoteService.importSyncItems({
+      payload,
+      items: [{ key: "review", mode: "createOnly" }],
+    });
 
     expect(result.results[0]).toMatchObject({
-      directoryName: "local-review",
-      status: "skipped",
-      path: join(remoteHome, ".agents", "skills", "agents-review-copy"),
+      key: "review",
+      status: "conflict",
     });
     await expect(
       readFile(join(remoteHome, ".zcode", "skills", "local-review", "SKILL.md"), "utf-8"),
@@ -398,13 +430,8 @@ describe("skill sync service", () => {
     const skillDir = await writeSkill(home, "large-skill");
     await writeFile(join(skillDir, "large.txt"), "a".repeat(4096));
     const service = createSkillSyncService({ maxArchiveBytes: 1024 });
-    const candidates = await service.listLocalUserSkillCandidates();
 
-    await expect(
-      service.exportSkillsArchive({
-        skillIds: candidates.candidates.map((candidate) => candidate.id),
-      }),
-    ).rejects.toMatchObject({
+    await expect(service.exportSyncItems({ keys: ["large-skill"] })).rejects.toMatchObject({
       code: SKILL_SYNC_SIZE_LIMIT_ERROR_CODE,
       data: {
         actualBytes: expect.any(Number),
@@ -420,17 +447,17 @@ describe("skill sync service", () => {
     const skillDir = await writeSkill(localHome, "large-skill");
     await writeFile(join(skillDir, "large.txt"), "a".repeat(4096));
     const localService = createSkillSyncService({ maxArchiveBytes: 1024 * 1024 });
-    const candidates = await localService.listLocalUserSkillCandidates();
-    const archive = await localService.exportSkillsArchive({
-      skillIds: candidates.candidates.map((candidate) => candidate.id),
-    });
+    const payload = await localService.exportSyncItems({ keys: ["large-skill"] });
 
     const remoteHome = makeHome();
     process.env.HOME = remoteHome;
     const remoteService = createSkillSyncService({ maxArchiveBytes: 1024 });
 
     await expect(
-      remoteService.importSkillsArchive({ archive: archive.archive }),
+      remoteService.importSyncItems({
+        payload,
+        items: [{ key: "large-skill", mode: "createOnly" }],
+      }),
     ).rejects.toMatchObject({
       code: SKILL_SYNC_SIZE_LIMIT_ERROR_CODE,
       data: {

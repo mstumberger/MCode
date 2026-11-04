@@ -364,6 +364,23 @@ const { BrowserGuestManager, sanitizeBrowserMetaUrl } =
 
 type BrowserGuestManagerInstance = InstanceType<typeof BrowserGuestManager>;
 
+// 修复依据：上游 v3.17.2 引入 per-window backend identity（BrowserGuestManager#getBackendIdentity，
+// 生产侧由 main 的 browserBackendIdentity 注入 Host 桥）。非 legacy 的 execute context 的
+// browserId/browserGeneration 必须与资源 owner 身份一致，否则 execute 在准入前直接返回
+// backend_unavailable("Browser resource owner is no longer available")。
+// 测试统一通过该 helper 用当前 manager 的真实身份构造 context。
+function withBackendIdentity(
+  mgr: BrowserGuestManagerInstance,
+  context: Omit<BrowserGuestExecutionContext, "browserId" | "browserGeneration">,
+): BrowserGuestExecutionContext {
+  const identity = mgr.getBackendIdentity(context.windowId);
+  return {
+    ...context,
+    browserId: identity.id,
+    browserGeneration: identity.generation,
+  };
+}
+
 beforeEach(() => {
   guestRegistry.clear();
 });
@@ -436,15 +453,19 @@ describe("BrowserGuestManager", () => {
       workspaceKey: "/repo",
       sessionId: "session-a",
     });
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "recording-start",
-      browserId: "unclaimed-iab",
-      browserGeneration: 0,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-a",
       clientMode: "desktop-continuous" as const,
-    };
+    });
+    // 修复依据：上游 v3.17.2 起 attachGuest 直建的 tab 是 user-owned（unclaimed-iab），
+    // 录制命令要求 tab 已被 agent scope 认领（sameScope），先 claimTab 再录制。
+    await mgr.execute(
+      { ...context, requestId: "recording-claim" },
+      { method: "claimTab", tabId: "recording-tab" },
+    );
 
     const started = await mgr.execute(context, {
       method: "recordingStart",
@@ -457,7 +478,10 @@ describe("BrowserGuestManager", () => {
       },
       tabId: "recording-tab",
     });
-    expect(started.recording).toMatchObject({ status: "running", phase: "preparing" });
+    expect(started.recording).toMatchObject({
+      status: "running",
+      phase: "preparing",
+    });
     const recordingId = started.recording!.id;
 
     await vi.waitFor(() => {
@@ -563,14 +587,28 @@ describe("BrowserGuestManager", () => {
       mgr: BrowserGuestManagerInstance,
       context: Partial<BrowserGuestExecutionContext> = {},
     ) {
-      return mgr.execute(
-        { ...RECORDING_CONTEXT, ...context },
-        {
-          method: "recordingStart",
-          options: { settleMs: 30_000, maxDurationMs: 60_000, showCursor: false },
-          tabId: "record-tab",
-        },
-      );
+      // 修复依据：上游 v3.17.2 起 execute 的非 legacy context 必须携带 per-window backend
+      // identity；且 attachGuest 直建的 record-tab 是 user-owned，需先被 agent scope claim。
+      const base = withBackendIdentity(mgr, {
+        ...RECORDING_CONTEXT,
+        ...context,
+      });
+      return mgr
+        .execute(
+          { ...base, requestId: `claim:${base.requestId}` },
+          { method: "claimTab", tabId: "record-tab" },
+        )
+        .then(() =>
+          mgr.execute(base, {
+            method: "recordingStart",
+            options: {
+              settleMs: 30_000,
+              maxDurationMs: 60_000,
+              showCursor: false,
+            },
+            tabId: "record-tab",
+          }),
+        );
     }
 
     function readStatus(
@@ -579,10 +617,19 @@ describe("BrowserGuestManager", () => {
       context: Partial<BrowserGuestExecutionContext> = {},
       tabId: string | undefined = "record-tab",
     ) {
-      return mgr.execute(
-        { ...RECORDING_CONTEXT, requestId: `status:${recordingId}`, ...context },
-        { method: "recordingStatus", recordingId, ...(tabId ? { tabId } : {}) },
-      );
+      const merged = {
+        ...RECORDING_CONTEXT,
+        requestId: `status:${recordingId}`,
+        ...context,
+      };
+      // 修复依据：closeWindow 会删除窗口的 backend identity；若调用方已显式钉住
+      // 录制时的身份（window 关闭用例），必须尊重钉住值而不是重新生成新 identity。
+      const pinned = context.browserId !== undefined && context.browserGeneration !== undefined;
+      return mgr.execute(pinned ? merged : withBackendIdentity(mgr, merged), {
+        method: "recordingStatus",
+        recordingId,
+        ...(tabId ? { tabId } : {}),
+      });
     }
 
     it("BVR03: 其它 session 查不到别人的录制状态，也拿不到 artifact", async () => {
@@ -608,14 +655,21 @@ describe("BrowserGuestManager", () => {
       const recordingId = started.recording!.id;
 
       const foreignCancel = await mgr.execute(
-        { ...RECORDING_CONTEXT, requestId: "foreign-cancel", sessionId: "session-b" },
+        withBackendIdentity(mgr, {
+          ...RECORDING_CONTEXT,
+          requestId: "foreign-cancel",
+          sessionId: "session-b",
+        }),
         { method: "recordingCancel", recordingId, tabId: "record-tab" },
       );
 
       expect(foreignCancel.ok).toBe(false);
       expect(foreignCancel.recording).toBeUndefined();
       const owner = await readStatus(mgr, recordingId);
-      expect(owner.recording).toMatchObject({ id: recordingId, status: "running" });
+      expect(owner.recording).toMatchObject({
+        id: recordingId,
+        status: "running",
+      });
     });
 
     it("BVR03: 同一 session 用错 tabId 查询同样 fail closed", async () => {
@@ -638,10 +692,15 @@ describe("BrowserGuestManager", () => {
         expect(createRecorder).toHaveBeenCalledOnce();
       });
 
-      const second = await startRecording(mgr, { requestId: "recording-start-2" });
+      const second = await startRecording(mgr, {
+        requestId: "recording-start-2",
+      });
 
       expect(second.ok).toBe(false);
-      expect(second.error).toMatchObject({ code: "execution_error", sideEffect: "none" });
+      expect(second.error).toMatchObject({
+        code: "execution_error",
+        sideEffect: "none",
+      });
       expect(second.error?.message).toContain(firstId);
       expect(second.recording).toBeUndefined();
       // 第二次请求不得再起一个 recorder，也不得把第一个作业挤掉。
@@ -658,7 +717,7 @@ describe("BrowserGuestManager", () => {
         expect(createRecorder).toHaveBeenCalledOnce();
       });
 
-      mgr.endTurn(RECORDING_CONTEXT);
+      mgr.endTurn(withBackendIdentity(mgr, RECORDING_CONTEXT));
 
       const status = await readStatus(mgr, recordingId);
       expect(status.recording).toMatchObject({
@@ -681,7 +740,7 @@ describe("BrowserGuestManager", () => {
         expect(createRecorder).toHaveBeenCalledOnce();
       });
 
-      mgr.closeSession(RECORDING_CONTEXT);
+      mgr.closeSession(withBackendIdentity(mgr, RECORDING_CONTEXT));
 
       const status = await readStatus(mgr, recordingId);
       expect(status.recording).toMatchObject({ status: "cancelled" });
@@ -700,8 +759,12 @@ describe("BrowserGuestManager", () => {
 
       mgr.closeWindow(1);
 
+      // 修复依据：上游 v3.17.2 起 closeWindow 会删除该窗口的 backend identity 并取消录制；
+      // 之后的查询会拿到重建的新身份，与录制建立时的 scope 不匹配，必须 fail closed。
       const status = await readStatus(mgr, recordingId);
-      expect(status.recording).toMatchObject({ status: "cancelled" });
+      expect(status.ok).toBe(false);
+      expect(status.error).toMatchObject({ code: "backend_unavailable" });
+      expect(status.error?.message).toContain("is unavailable in this context");
       await vi.waitFor(() => {
         expect(releases[0]).toHaveBeenCalled();
       });
@@ -718,7 +781,10 @@ describe("BrowserGuestManager", () => {
 
       await vi.waitFor(async () => {
         const status = await readStatus(mgr, recordingId);
-        expect(status.recording).toMatchObject({ status: "failed", phase: "failed" });
+        expect(status.recording).toMatchObject({
+          status: "failed",
+          phase: "failed",
+        });
       });
       const status = await readStatus(mgr, recordingId);
       expect(status.recording?.error).toContain("Chromium does not support VP8 WebM");
@@ -755,17 +821,35 @@ describe("BrowserGuestManager", () => {
         sessionId: "session-a",
       });
       // 录制前 agent 已经把 tab 固定为 1280×720。
+      // 修复依据：上游 v3.17.2 起 context 需带 backend identity，且 attachGuest 直建的
+      // record-tab 是 user-owned，需先 claim 才能被 agent 命令寻址。
+      const recordingContext = withBackendIdentity(mgr, {
+        ...RECORDING_CONTEXT,
+      });
       await mgr.execute(
-        { ...RECORDING_CONTEXT, requestId: "viewport-set" },
-        { method: "browserViewportSet", width: 1280, height: 720, tabId: "record-tab" },
+        { ...recordingContext, requestId: "recording-claim" },
+        { method: "claimTab", tabId: "record-tab" },
+      );
+      await mgr.execute(
+        { ...recordingContext, requestId: "viewport-set" },
+        {
+          method: "browserViewportSet",
+          width: 1280,
+          height: 720,
+          tabId: "record-tab",
+        },
       );
       onViewportChanged.mockClear();
 
       const started = await mgr.execute(
-        { ...RECORDING_CONTEXT, requestId: "recording-start" },
+        { ...recordingContext, requestId: "recording-start" },
         {
           method: "recordingStart",
-          options: { viewport: { width: 800, height: 600 }, settleMs: 0, showCursor: false },
+          options: {
+            viewport: { width: 800, height: 600 },
+            settleMs: 0,
+            showCursor: false,
+          },
           tabId: "record-tab",
         },
       );
@@ -785,7 +869,9 @@ describe("BrowserGuestManager", () => {
 
     it("BVR02: surface 在 prepare 返回时已失效，录制直接 failed 且不启动 recorder", async () => {
       const { mgr, createRecorder, releases } = createRecordingHarness(439, {
-        surface: { invalidated: AbortSignal.abort(new Error("browser side pane was hidden")) },
+        surface: {
+          invalidated: AbortSignal.abort(new Error("browser side pane was hidden")),
+        },
       });
       const started = await startRecording(mgr);
       const recordingId = started.recording!.id;
@@ -859,7 +945,10 @@ describe("BrowserGuestManager", () => {
       expect(remote.ok).toBe(false);
       expect(remote.recording).toBeUndefined();
       const owner = await readStatus(mgr, recordingId);
-      expect(owner.recording).toMatchObject({ id: recordingId, status: "running" });
+      expect(owner.recording).toMatchObject({
+        id: recordingId,
+        status: "running",
+      });
     });
   });
 
@@ -978,7 +1067,11 @@ describe("BrowserGuestManager", () => {
         { x: 160, y: 230 },
         { x: 300, y: 200 },
       ];
-      await mgr.execute("zoom-tab", { method: "cuaDrag", tabId: "zoom-tab", path });
+      await mgr.execute("zoom-tab", {
+        method: "cuaDrag",
+        tabId: "zoom-tab",
+        path,
+      });
       const dragMoves = spy.cdpCalls.filter(
         ({ method, params }) =>
           method === "Input.dispatchMouseEvent" &&
@@ -991,7 +1084,12 @@ describe("BrowserGuestManager", () => {
         }),
       ).toEqual(path.map(({ x, y }) => [x * scale, y * scale]));
     }
-    await mgr.execute("other-tab", { method: "click", tabId: "other-tab", x: 600, y: 400 });
+    await mgr.execute("other-tab", {
+      method: "click",
+      tabId: "other-tab",
+      x: 600,
+      y: 400,
+    });
     expect(other.spy.cdpCalls).toContainEqual({
       method: "Input.dispatchMouseEvent",
       params: { type: "mouseMoved", x: 600, y: 400 },
@@ -1061,7 +1159,9 @@ describe("BrowserGuestManager", () => {
         () => "FIT_PNG",
         coordinator,
       );
-      Object.defineProperty(guest, "hostWebContents", { value: { getZoomFactor: () => 1.1 } });
+      Object.defineProperty(guest, "hostWebContents", {
+        value: { getZoomFactor: () => 1.1 },
+      });
       mgr.attachGuest("fit-shot", 604);
       await mgr.updateViewportFromRenderer("fit-shot", { width: 1280, height: 720 }, 0);
       guest.debugger.detach();
@@ -1194,7 +1294,9 @@ describe("BrowserGuestManager", () => {
       const nativeCapture = desktopZoom > 1;
       spy.zoomFactor = desktopZoom;
       spy.cdpCalls.length = 0;
-      const result = await mgr.execute("fallback-zoom", { method: "screenshot" });
+      const result = await mgr.execute("fallback-zoom", {
+        method: "screenshot",
+      });
       expect(result).toMatchObject({
         ok: true,
         image: { base64: nativeCapture ? "FALLBACK_PNG" : "PNGDATA" },
@@ -1207,7 +1309,10 @@ describe("BrowserGuestManager", () => {
       );
       // metrics 与 Desktop zoom 无关：只在首次安装和 idle 重连时下发，热态 zoom 变化不重发。
       if (phase === "initial" || phase === "reattach") {
-        expect(metricsCalls.at(-1)?.params).toMatchObject({ width: 1280, height: 720 });
+        expect(metricsCalls.at(-1)?.params).toMatchObject({
+          width: 1280,
+          height: 720,
+        });
       }
       for (const { params } of metricsCalls) expect(params).not.toHaveProperty("scale");
       expect(spy.zoomFactor).toBe(1);
@@ -2301,7 +2406,10 @@ describe("BrowserGuestManager", () => {
       reason: "workspace-mismatch",
     });
     expect(rejected.spy.closeCalls).toBe(1);
-    expect(rebinds).toEqual(["scope-tab"]);
+    // 修复依据：上游 v3.17.2 起 requestGuestRebind 对 user-owned tab 直接返回 false
+    // （human tab 的 guest 只能由所属 workspace 已有的 Browser shell 创建，不再请求 rebind），
+    // 被拒 guest 仍会被清理，但 rebind 不会再触发。
+    expect(rebinds).toEqual([]);
   });
 
   it("newTab 在首次 guest scope 绑定失败后自动重放 Ready 并自愈", async () => {
@@ -2319,15 +2427,14 @@ describe("BrowserGuestManager", () => {
     });
 
     const result = await manager.execute(
-      {
+      // 修复依据：上游 v3.17.2 起非 legacy context 必须携带窗口的 backend identity。
+      withBackendIdentity(manager, {
         requestId: "scope-recovery-new-tab",
-        browserId: "iab-1",
-        browserGeneration: 1,
         windowId: 1,
         workspaceKey: "/workspace-a",
         sessionId: "session-a",
         clientMode: "desktop-continuous",
-      },
+      }),
       { method: "newTab" },
     );
 
@@ -2397,6 +2504,19 @@ describe("BrowserGuestManager", () => {
       workspaceKey: "/repo",
       sessionId: "session-a",
     });
+    // 修复依据：上游 v3.17.2 起 user-owned tab 的 guest 销毁不再自动 requestGuestRebind
+    // （human tab 的 guest 由所属 workspace 已有的 Browser shell 负责）；自动重绑恢复
+    // 只对已被 agent scope 认领的 tab 生效，先 claim 再触发 guest 销毁。
+    await mgr.execute(
+      withBackendIdentity(mgr, {
+        requestId: "rebind-claim",
+        windowId: 1,
+        workspaceKey: "/repo",
+        sessionId: "session-a",
+        clientMode: "desktop-continuous",
+      }),
+      { method: "claimTab", tabId: "browser:rebind-restore" },
+    );
     await mgr.reportResidency({
       tabId: "browser:rebind-restore",
       windowId: 1,
@@ -2938,15 +3058,17 @@ describe("BrowserGuestManager", () => {
     const mgr = new BrowserGuestManager(undefined, 5_000, undefined, (tabId, owner) =>
       opened.push({ tabId, windowId: owner.windowId }),
     );
-    const context = (windowId: number, requestId: string) => ({
-      requestId,
-      browserId: "iab-1",
-      browserGeneration: 7,
-      windowId,
-      workspaceKey: `/workspace-${windowId}`,
-      sessionId: "same-session",
-      clientMode: "desktop-continuous" as const,
-    });
+    // 修复依据：上游 v3.17.2 起 backend identity 按 window 分配（getBackendIdentity），
+    // 每个 window 有独立 browserId/generation，context 需携带对应窗口的真实身份。
+    const context = (windowId: number, requestId: string) =>
+      withBackendIdentity(mgr, {
+        requestId,
+        windowId,
+        workspaceKey: `/workspace-${windowId}`,
+        sessionId: "same-session",
+        clientMode: "desktop-continuous" as const,
+      });
+    const firstWindowIdentity = mgr.getBackendIdentity(1);
 
     const firstPending = mgr.execute(context(1, "req-1"), { method: "newTab" });
     await Promise.resolve();
@@ -2974,8 +3096,8 @@ describe("BrowserGuestManager", () => {
     });
     expect(firstList.tabs?.map((tab) => tab.tabId)).toEqual([firstTabId]);
     expect(firstList.meta).toMatchObject({
-      browserId: "iab-1",
-      browserGeneration: 7,
+      browserId: firstWindowIdentity.id,
+      browserGeneration: firstWindowIdentity.generation,
       openTabIds: [firstTabId],
     });
     const crossScope = await mgr.execute(context(1, "req-cross"), {
@@ -2995,15 +3117,13 @@ describe("BrowserGuestManager", () => {
   it("后台挂载的 scope 仍在 list 暴露唯一可寻址 active tab，与无 tabId 命令落点一致", async () => {
     const opened: string[] = [];
     const mgr = new BrowserGuestManager(undefined, 5_000, undefined, (tabId) => opened.push(tabId));
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "bg-1",
-      browserId: "iab-1",
-      browserGeneration: 7,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-bg",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const newBackgroundTab = async (requestId: string, webContentsId: number, url: string) => {
       const pending = mgr.execute({ ...context, requestId }, { method: "newTab" });
       await Promise.resolve();
@@ -3060,15 +3180,13 @@ describe("BrowserGuestManager", () => {
           ...(tabId ? { tabId } : {}),
         }),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "activate-tab",
-      browserId: "iab-1",
-      browserGeneration: 7,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const newAttachedTab = async (requestId: string, webContentsId: number) => {
       const pending = mgr.execute({ ...context, requestId }, { method: "newTab" });
       await Promise.resolve();
@@ -3107,7 +3225,10 @@ describe("BrowserGuestManager", () => {
       { ...context, requestId: "activate-cross", sessionId: "session-2" },
       { method: "activateTab", tabId: firstTabId },
     );
-    expect(crossScope).toMatchObject({ ok: false, error: { code: "backend_unavailable" } });
+    expect(crossScope).toMatchObject({
+      ok: false,
+      error: { code: "backend_unavailable" },
+    });
     expect(crossScope.error?.message).toContain(
       "This is pre-action stale-binding recovery, not post-action popup observation.",
     );
@@ -3132,15 +3253,13 @@ describe("BrowserGuestManager", () => {
       undefined,
       coordinator,
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "visibility-set",
-      browserId: "iab-1",
-      browserGeneration: 7,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     await expect(
       mgr.execute(context, { method: "browserVisibilitySet", visible: true }),
@@ -3275,15 +3394,14 @@ describe("BrowserGuestManager", () => {
     const mgr = new BrowserGuestManager(undefined, 5_000, undefined, (tabId, owner) =>
       opened.push({ tabId, sessionId: owner.sessionId }),
     );
-    const context = (sessionId: string, requestId: string) => ({
-      requestId,
-      browserId: "iab-1",
-      browserGeneration: 7,
-      windowId: 1,
-      workspaceKey: "/repo",
-      sessionId,
-      clientMode: "desktop-continuous" as const,
-    });
+    const context = (sessionId: string, requestId: string) =>
+      withBackendIdentity(mgr, {
+        requestId,
+        windowId: 1,
+        workspaceKey: "/repo",
+        sessionId,
+        clientMode: "desktop-continuous" as const,
+      });
 
     const foregroundPending = mgr.execute(context("session-b", "foreground-new"), {
       method: "newTab",
@@ -3387,15 +3505,13 @@ describe("BrowserGuestManager", () => {
   it("后台 viewport 恢复与显式设置竞态时由显式尺寸胜出", async () => {
     const opened: string[] = [];
     const mgr = new BrowserGuestManager(undefined, 5_000, undefined, (tabId) => opened.push(tabId));
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "background-default-new",
-      browserId: "iab-1",
-      browserGeneration: 7,
       windowId: 9,
       workspaceKey: "/repo",
       sessionId: "session-a",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const pending = mgr.execute(context, { method: "newTab" });
     await Promise.resolve();
@@ -3483,15 +3599,14 @@ describe("BrowserGuestManager", () => {
       workspaceKey: "/repo",
       sessionId: "session-1",
     });
-    const context = (sessionId: string, requestId: string, workspaceKey = "/repo") => ({
-      requestId,
-      browserId: "iab-1",
-      browserGeneration: 1,
-      windowId: 1,
-      workspaceKey,
-      sessionId,
-      clientMode: "desktop-continuous" as const,
-    });
+    const context = (sessionId: string, requestId: string, workspaceKey = "/repo") =>
+      withBackendIdentity(mgr, {
+        requestId,
+        windowId: 1,
+        workspaceKey,
+        sessionId,
+        clientMode: "desktop-continuous" as const,
+      });
 
     const ownedBeforeClaim = await mgr.execute(context("session-1", "list-owned"), {
       method: "list",
@@ -3597,22 +3712,23 @@ describe("BrowserGuestManager", () => {
       workspaceKey: "/repo",
       sessionId: "session-1",
     });
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "claim-inactive",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const claimed = await mgr.execute(context, {
       method: "claimTab",
       tabId: "browser:human-inactive",
     });
     expect(claimed.tab).toEqual(
-      expect.objectContaining({ tabId: "browser:human-inactive", active: true }),
+      expect.objectContaining({
+        tabId: "browser:human-inactive",
+        active: true,
+      }),
     );
     expect(visibilityNotifications).toContainEqual({
       visible: true,
@@ -3634,15 +3750,14 @@ describe("BrowserGuestManager", () => {
       undefined,
       (viewport, _owner, tabId) => viewportChanges.push({ tabId, viewport }),
     );
-    const context = (requestId: string) => ({
-      requestId,
-      browserId: "iab-default-size",
-      browserGeneration: 1,
-      windowId: 1,
-      workspaceKey: "/repo",
-      sessionId: requestId.startsWith("implicit") ? "implicit-session" : "explicit-session",
-      clientMode: "desktop-continuous" as const,
-    });
+    const context = (requestId: string) =>
+      withBackendIdentity(mgr, {
+        requestId,
+        windowId: 1,
+        workspaceKey: "/repo",
+        sessionId: requestId.startsWith("implicit") ? "implicit-session" : "explicit-session",
+        clientMode: "desktop-continuous" as const,
+      });
 
     const explicitPending = mgr.execute(context("explicit-new"), {
       method: "newTab",
@@ -3733,15 +3848,14 @@ describe("BrowserGuestManager", () => {
       workspaceKey: "/repo",
       sessionId: "session-user",
     });
-    const context = (requestId: string) => ({
-      requestId,
-      browserId: "iab-user-size",
-      browserGeneration: 1,
-      windowId: 1,
-      workspaceKey: "/repo",
-      sessionId: "session-user",
-      clientMode: "desktop-continuous" as const,
-    });
+    const context = (requestId: string) =>
+      withBackendIdentity(mgr, {
+        requestId,
+        windowId: 1,
+        workspaceKey: "/repo",
+        sessionId: "session-user",
+        clientMode: "desktop-continuous" as const,
+      });
 
     await expect(
       mgr.execute(context("claim-user-size"), {
@@ -3805,15 +3919,14 @@ describe("BrowserGuestManager", () => {
         sessionId: "session-owner",
       });
     }
-    const context = (sessionId: string, requestId: string) => ({
-      requestId,
-      browserId: "iab-1",
-      browserGeneration: 1,
-      windowId: 1,
-      workspaceKey: "/repo",
-      sessionId,
-      clientMode: "desktop-continuous" as const,
-    });
+    const context = (sessionId: string, requestId: string) =>
+      withBackendIdentity(mgr, {
+        requestId,
+        windowId: 1,
+        workspaceKey: "/repo",
+        sessionId,
+        clientMode: "desktop-continuous" as const,
+      });
 
     await expect(
       mgr.execute(context("session-owner", "list-owner"), {
@@ -3852,16 +3965,14 @@ describe("BrowserGuestManager", () => {
       (tabId) => closed.push(tabId),
       (tabId) => opened.push(tabId),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "finalize-subset",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const newAttachedTab = async (requestId: string, webContentsId: number) => {
       const pending = mgr.execute({ ...context, requestId }, { method: "newTab" });
       await Promise.resolve();
@@ -3923,16 +4034,14 @@ describe("BrowserGuestManager", () => {
       (tabId) => closed.push(tabId),
       (tabId) => opened.push(tabId),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "turn-fallback",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const firstPending = mgr.execute({ ...context, requestId: "new-first" }, { method: "newTab" });
     await Promise.resolve();
@@ -4001,16 +4110,14 @@ describe("BrowserGuestManager", () => {
       () => {},
       (tabId) => opened.push(tabId),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "turn-cdp-release",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const pending = mgr.execute({ ...context, requestId: "new-tab" }, { method: "newTab" });
     await Promise.resolve();
@@ -4042,16 +4149,14 @@ describe("BrowserGuestManager", () => {
       () => {},
       (tabId) => opened.push(tabId),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "turn-cdp-relatch",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const pending = mgr.execute({ ...context, requestId: "new-tab" }, { method: "newTab" });
     await Promise.resolve();
@@ -4086,16 +4191,14 @@ describe("BrowserGuestManager", () => {
       () => {},
       (tabId) => opened.push(tabId),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "session-cdp-release",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const pending = mgr.execute({ ...context, requestId: "new-tab" }, { method: "newTab" });
     await Promise.resolve();
@@ -4118,16 +4221,14 @@ describe("BrowserGuestManager", () => {
       () => {},
       (tabId) => opened.push(tabId),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "turn-cdp-inflight",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const pending = mgr.execute({ ...context, requestId: "new-tab" }, { method: "newTab" });
     await Promise.resolve();
@@ -4184,16 +4285,14 @@ describe("BrowserGuestManager", () => {
       undefined,
       50, // cdpIdleReleaseMs（注入短 idle 便于测试）
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "cdp-idle-release",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const pending = mgr.execute({ ...context, requestId: "new-tab" }, { method: "newTab" });
     await Promise.resolve();
@@ -4249,16 +4348,14 @@ describe("BrowserGuestManager", () => {
       undefined,
       50, // cdpIdleReleaseMs
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "replay-session-state",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const pending = mgr.execute({ ...context, requestId: "new-tab" }, { method: "newTab" });
     await Promise.resolve();
@@ -4316,16 +4413,14 @@ describe("BrowserGuestManager", () => {
       undefined,
       50, // cdpIdleReleaseMs
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "replay-barrier",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const pending = mgr.execute({ ...context, requestId: "new-tab" }, { method: "newTab" });
     await Promise.resolve();
@@ -4383,16 +4478,14 @@ describe("BrowserGuestManager", () => {
       undefined,
       50, // cdpIdleReleaseMs
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "restore-failure",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const pending = mgr.execute({ ...context, requestId: "new-tab" }, { method: "newTab" });
     await Promise.resolve();
@@ -4452,16 +4545,14 @@ describe("BrowserGuestManager", () => {
       (tabId) => closed.push(tabId),
       (tabId) => opened.push(tabId),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "turn-handoff",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
 
     const handoffPending = mgr.execute(
       { ...context, requestId: "new-handoff" },
@@ -4512,15 +4603,13 @@ describe("BrowserGuestManager", () => {
       (tabId) => closed.push(tabId),
       (tabId) => opened.push(tabId),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "req-new",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const pending = mgr.execute(context, { method: "newTab" });
     await Promise.resolve();
     const tabId = opened[0]!;
@@ -4552,16 +4641,14 @@ describe("BrowserGuestManager", () => {
   it("cancelRequest 能中断 ready waiter，并区分未下发副作用", async () => {
     const opened: string[] = [];
     const mgr = new BrowserGuestManager(undefined, 5_000, undefined, (tabId) => opened.push(tabId));
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "req-waiting",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const pending = mgr.execute(context, { method: "getState" });
     await Promise.resolve();
     expect(opened).toHaveLength(1);
@@ -4588,16 +4675,14 @@ describe("BrowserGuestManager", () => {
   it("同 scope 的并发重复 requestId 立即失败且不覆盖原请求", async () => {
     const opened: string[] = [];
     const mgr = new BrowserGuestManager(undefined, 5_000, undefined, (tabId) => opened.push(tabId));
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "duplicate-running",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const original = mgr.execute(context, { method: "getState" });
     await Promise.resolve();
 
@@ -4621,16 +4706,14 @@ describe("BrowserGuestManager", () => {
   it("跨 scope 的并发重复 requestId 立即失败且原 scope 仍可取消", async () => {
     const opened: string[] = [];
     const mgr = new BrowserGuestManager(undefined, 5_000, undefined, (tabId) => opened.push(tabId));
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "cross-scope-duplicate-running",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       turnId: "turn-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const original = mgr.execute(context, { method: "getState" });
     await Promise.resolve();
 
@@ -4671,15 +4754,13 @@ describe("BrowserGuestManager", () => {
       (tabId) => closed.push(tabId),
       (tabId) => opened.push(tabId),
     );
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "req-new-cancelled",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const pending = mgr.execute(context, { method: "newTab" });
     await Promise.resolve();
     const tabId = opened[0]!;
@@ -4710,15 +4791,13 @@ describe("BrowserGuestManager", () => {
       });
     };
     const mgr = new BrowserGuestManager(undefined, 5_000, undefined, (tabId) => opened.push(tabId));
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "create-side-effect-tab",
-      browserId: "iab-1",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-1",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const createPending = mgr.execute(context, { method: "newTab" });
     await Promise.resolve();
     const tabId = opened[0]!;
@@ -4806,18 +4885,19 @@ describe("BrowserGuestManager", () => {
       (tabId) => closed.push(tabId),
       (tabId, owner) => opened.push({ tabId, sessionId: owner.sessionId }),
     );
-    const context = (sessionId: string, requestId: string) => ({
-      requestId,
-      browserId: "iab-1",
-      browserGeneration: 1,
-      windowId: 1,
-      workspaceKey: "/repo",
-      sessionId,
-      clientMode: "desktop-continuous" as const,
-    });
+    const context = (sessionId: string, requestId: string) =>
+      withBackendIdentity(mgr, {
+        requestId,
+        windowId: 1,
+        workspaceKey: "/repo",
+        sessionId,
+        clientMode: "desktop-continuous" as const,
+      });
     const openTab = async (sessionId: string, guestId: number, url: string) => {
       const before = opened.length;
-      const pending = mgr.execute(context(sessionId, `new-${guestId}`), { method: "newTab" });
+      const pending = mgr.execute(context(sessionId, `new-${guestId}`), {
+        method: "newTab",
+      });
       await vi.waitFor(() => expect(opened.length).toBe(before + 1));
       const tabId = opened.at(-1)!.tabId;
       const registered = registerGuest(guestId);
@@ -4837,10 +4917,15 @@ describe("BrowserGuestManager", () => {
     });
     await expect(
       mgr.execute(context(actor, "list-before"), { method: "list" }),
-    ).resolves.toMatchObject({ tabs: [expect.objectContaining({ tabId: controlledTabId })] });
+    ).resolves.toMatchObject({
+      tabs: [expect.objectContaining({ tabId: controlledTabId })],
+    });
 
     await expect(
-      mgr.execute(context(actor, "close-session"), { method: "closeSession", closeTabs: true }),
+      mgr.execute(context(actor, "close-session"), {
+        method: "closeSession",
+        closeTabs: true,
+      }),
     ).resolves.toMatchObject({ ok: true });
 
     expect([...closed].sort()).toEqual([controlledTabId, deliveredTabId].sort());
@@ -4866,15 +4951,14 @@ describe("BrowserGuestManager", () => {
       (tabId) => closed.push(tabId),
       (tabId, owner) => opened.push({ tabId, sessionId: owner.sessionId }),
     );
-    const context = (sessionId: string, requestId: string) => ({
-      requestId,
-      browserId: "iab-1",
-      browserGeneration: 1,
-      windowId: 1,
-      workspaceKey: "/repo",
-      sessionId,
-      clientMode: "desktop-continuous" as const,
-    });
+    const context = (sessionId: string, requestId: string) =>
+      withBackendIdentity(mgr, {
+        requestId,
+        windowId: 1,
+        workspaceKey: "/repo",
+        sessionId,
+        clientMode: "desktop-continuous" as const,
+      });
     const firstPending = mgr.execute(context("s1", "new-1"), {
       method: "newTab",
     });
@@ -4989,15 +5073,13 @@ describe("BrowserGuestManager", () => {
     expect(oldestGuestSpy?.sessionRemoveAfterDestroyCalls).toBe(0);
     expect(recoveryStore.remove).toHaveBeenCalledWith("browser:a");
 
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "logical-list",
-      browserId: "unclaimed-iab",
-      browserGeneration: 0,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-a",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     const userTabs = await mgr.execute(context, { method: "listUserTabs" });
     expect(userTabs.userTabs?.map((tab) => tab.id)).toEqual(["browser:b", "browser:c"]);
 
@@ -5155,15 +5237,19 @@ describe("BrowserGuestManager", () => {
       workspaceKey: "/repo",
       sessionId: "session-a",
     });
-    const context = {
+    const context = withBackendIdentity(mgr, {
       requestId: "cancel-first-restore-caller",
-      browserId: "unclaimed-iab",
-      browserGeneration: 0,
       windowId: 1,
       workspaceKey: "/repo",
       sessionId: "session-a",
       clientMode: "desktop-continuous" as const,
-    };
+    });
+    // 修复依据：上游 v3.17.2 起恢复出的 user tab owner 是 unclaimed-iab，
+    // agent 命令（backend identity context）须先 claimTab 认领才能寻址。
+    await mgr.execute(
+      { ...context, requestId: "claim-restored-tab" },
+      { method: "claimTab", tabId },
+    );
     const controller = new AbortController();
     const first = mgr.execute(context, { method: "getState", tabId }, controller.signal);
     await vi.waitFor(() => expect(restorePayload).toBeDefined());
@@ -5343,7 +5429,10 @@ describe("BrowserGuestManager", () => {
       {
         recoveryStore,
         onRestoreTabRequested: (payload) => {
-          restoreEvents.push({ generation: payload.generation, residency: payload.residency });
+          restoreEvents.push({
+            generation: payload.generation,
+            residency: payload.residency,
+          });
           registerGuest(345);
           queueMicrotask(() =>
             mgr.attachGuest(payload.tabId, 345, {
@@ -5355,7 +5444,10 @@ describe("BrowserGuestManager", () => {
           );
         },
         onResidencyChanged: (payload) => {
-          restoreEvents.push({ generation: payload.generation, residency: payload.residency });
+          restoreEvents.push({
+            generation: payload.generation,
+            residency: payload.residency,
+          });
         },
       },
     );
@@ -5424,7 +5516,11 @@ describe("BrowserGuestManager", () => {
         },
       },
     );
-    await mgr.restoreTabs({ windowId: 1, workspaceKey: "/repo", sessionId: "session-a" });
+    await mgr.restoreTabs({
+      windowId: 1,
+      workspaceKey: "/repo",
+      sessionId: "session-a",
+    });
 
     await expect(
       mgr.ensureResidentFromRenderer({
@@ -5663,16 +5759,14 @@ describe("BrowserGuestManager", () => {
       sessionId: "session-a",
     });
 
-    const remoteBContext = {
+    const remoteBContext = withBackendIdentity(mgr, {
       requestId: "remote-b-list",
-      browserId: "browser-b",
-      browserGeneration: 1,
       windowId: 1,
       workspaceKey: "ssh://host/repo",
       remoteSessionId: "remote-b",
       sessionId: "session-a",
       clientMode: "desktop-continuous" as const,
-    };
+    });
     expect((await mgr.execute(remoteBContext, { method: "listUserTabs" })).userTabs).toEqual([]);
     await expect(
       mgr.ensureResidentFromRenderer({
@@ -5689,7 +5783,10 @@ describe("BrowserGuestManager", () => {
       { ...remoteBContext, requestId: "remote-b-claim" },
       { method: "claimTab", tabId },
     );
-    expect(claim).toMatchObject({ ok: false, error: { code: "backend_unavailable" } });
+    expect(claim).toMatchObject({
+      ok: false,
+      error: { code: "backend_unavailable" },
+    });
   });
 
   it("BTL11: renderer close 校验完整 scope，删除恢复事实并阻止迟到 attach 复活", async () => {
@@ -5787,18 +5884,23 @@ describe("BrowserGuestManager", () => {
       workspaceKey: "/repo",
       sessionId: "session-a",
     });
+    // 修复依据：上游 v3.17.2 起 agent 命令 context 必须携带 backend identity，
+    // 且 attachGuest 直建的 human tab 需先被 agent scope 认领才能被 close 寻址。
+    const closeContext = withBackendIdentity(mgr, {
+      requestId: "durable-close-claim",
+      windowId: 1,
+      workspaceKey: "/repo",
+      sessionId: "session-a",
+      clientMode: "desktop-continuous" as const,
+    });
+    await mgr.execute(
+      { ...closeContext, requestId: "durable-close-claim" },
+      { method: "claimTab", tabId: "browser:durable-close" },
+    );
     let settled = false;
     const closeResult = mgr
       .execute(
-        {
-          requestId: "durable-close",
-          browserId: "unclaimed-iab",
-          browserGeneration: 0,
-          windowId: 1,
-          workspaceKey: "/repo",
-          sessionId: "session-a",
-          clientMode: "desktop-continuous",
-        },
+        { ...closeContext, requestId: "durable-close" },
         { method: "close", tabId: "browser:durable-close" },
       )
       .finally(() => {
@@ -5848,17 +5950,21 @@ describe("BrowserGuestManager", () => {
       workspaceKey: "/repo",
       sessionId: "session-a",
     });
+    // 修复依据：同 BTL23，agent close 需先以 backend identity 认领该 human tab。
+    const closeContext = withBackendIdentity(mgr, {
+      requestId: "agent-close-claim",
+      windowId: 1,
+      workspaceKey: "/repo",
+      sessionId: "session-a",
+      clientMode: "desktop-continuous" as const,
+    });
+    await mgr.execute(
+      { ...closeContext, requestId: "agent-close-claim" },
+      { method: "claimTab", tabId: "browser:ghost-close" },
+    );
     await expect(
       mgr.execute(
-        {
-          requestId: "agent-close",
-          browserId: "unclaimed-iab",
-          browserGeneration: 0,
-          windowId: 1,
-          workspaceKey: "/repo",
-          sessionId: "session-a",
-          clientMode: "desktop-continuous",
-        },
+        { ...closeContext, requestId: "agent-close" },
         { method: "close", tabId: "browser:ghost-close" },
       ),
     ).resolves.toMatchObject({ ok: true });

@@ -8,6 +8,10 @@ import type {
   ConversationTopicFrame,
   ConversationTopicWireFrame,
 } from "@zcode/shared/zcode-protocol-v4";
+import type { SessionLifecycleSnapshot } from "@zcode/shared";
+// 修复依据：上游 v3.17.2 conversation transport 增加 session lifecycle 通道
+// （getSessionLifecycle / onDynamicSessionLifecycle），layer.acquire 经
+// ConversationProjectionStore -> transport.onSessionLifecycle 调用该面，mock 需补齐。
 import {
   WORKSPACE_CONNECTION_KEEP_WARM_MS,
   acquireWorkspaceConnection,
@@ -23,6 +27,7 @@ import {
 
 function mockAgentService(): WorkspaceConnectionAgentService {
   const runtimeRestarts = new Emitter<{ workspaceKey: string }>();
+  const sessionLifecycle = new Emitter<SessionLifecycleSnapshot>();
   return {
     helloConversationV4: vi.fn(async () => ({
       kind: "hello" as const,
@@ -64,6 +69,9 @@ function mockAgentService(): WorkspaceConnectionAgentService {
     attachmentAbortV4: vi.fn(async () => {}),
     attachmentReadV4: vi.fn(async () => ({}) as never),
     onDynamicConversationFrame: vi.fn(() => () => ({ dispose: () => {} })),
+    // 修复依据：上游 v3.17.2 新增 session lifecycle 面板方法，见文件头注释。
+    getSessionLifecycle: vi.fn(async () => null),
+    onDynamicSessionLifecycle: vi.fn(() => sessionLifecycle.event),
     onAgentRuntimeRestarted: runtimeRestarts.event,
   } as unknown as WorkspaceConnectionAgentService;
 }
@@ -136,6 +144,7 @@ function createReplacingRemoteServices(clientMode: "desktop-continuous" | "web-r
   ): WorkspaceConnectionAgentService => {
     const runtimeRestarts = new Emitter<{ workspaceKey: string }>();
     const frames = new Emitter<ConversationTopicWireFrame>();
+    const sessionLifecycle = new Emitter<SessionLifecycleSnapshot>();
     return {
       helloConversationV4: vi.fn(async () => ({
         kind: "hello" as const,
@@ -218,6 +227,9 @@ function createReplacingRemoteServices(clientMode: "desktop-continuous" | "web-r
       attachmentAbortV4: vi.fn(async () => {}),
       attachmentReadV4: vi.fn(async () => ({}) as never),
       onDynamicConversationFrame: vi.fn(() => frames.event),
+      // 修复依据：上游 v3.17.2 新增 session lifecycle 面板方法，见文件头注释。
+      getSessionLifecycle: vi.fn(async () => null),
+      onDynamicSessionLifecycle: vi.fn(() => sessionLifecycle.event),
       onAgentRuntimeRestarted: runtimeRestarts.event,
     } as unknown as WorkspaceConnectionAgentService;
   };

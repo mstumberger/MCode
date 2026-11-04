@@ -317,6 +317,12 @@ process.stdin.on("data", (chunk) => {
         },
       });
     }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 应答空能力集（全字段可选）即可。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "v4/commands/query" && msg.id !== undefined) {
       send({
         id: msg.id,
@@ -324,6 +330,16 @@ process.stdin.on("data", (chunk) => {
           results: msg.params.commands.map((key) => ({ key, result: "unknown" })),
         },
       });
+    }
+    // 未识别请求按真实 CLI 语义快速返回 method-not-found，避免 30s 超时掩盖协议缺口。
+    const HANDLED_METHODS = new Set([
+      "session/list", "session/debug", "v4/conversation/backgroundBashOutput", "v4/conversation/offPeakControl",
+      "v4/conversation/subscribe", "v4/conversation/unsubscribe", "v4/connection/flow", "v4/attachment/begin",
+      "v4/attachment/chunk", "v4/attachment/commit", "v4/attachment/abort", "v4/attachment/previewSource",
+      "v4/conversation/resync", "v4/command", "v4/commands/query",
+    ]);
+    if (msg.id !== undefined && msg.method && !HANDLED_METHODS.has(msg.method)) {
+      send({ id: msg.id, error: { code: -32601, message: "Method not found: " + msg.method } });
     }
   }
 });
@@ -917,7 +933,10 @@ describe("zcodeAgentService v4 conversation channel", () => {
 
       // Worker 已经持有进程级 Registry；Host 读取 Registry View 只用于启动门禁，
       // 不能把完整 Registry 下发成另一份执行事实源。
+      // 修复依据：上游 v3.17.2 起 client 启动会先发 runtime/capabilities 协商
+      // （sessionDirectorySource），Registry View 仍只作门禁，不下发 Registry。
       expect(readRequests(logPath).map((entry) => entry.method)).toEqual([
+        "runtime/capabilities",
         "v4/conversation/subscribe",
       ]);
       expect(
@@ -1169,8 +1188,13 @@ describe("zcodeAgentService v4 conversation channel", () => {
   });
 
   it("reserves explicit NULL for legacy V4 callers that omit projectId", async () => {
-    const prepareSessionCreation = vi.fn(async () => [] as string[]);
-    const { service, workspacePath } = setupService({ prepareSessionCreation });
+    // 修复依据：上游 v3.17.2 起 createSession 的 sessionId 由 Host 钩子「返回值」分配
+    // （旧请求缺 ID 时入参 sessionId 为 undefined），钩子必须返回 { sessionId, additionalDirectories }。
+    const prepareSessionCreation = vi.fn(async () => ({
+      sessionId: "reserved-legacy-create",
+      additionalDirectories: [] as string[],
+    }));
+    const { service, workspacePath, logPath } = setupService({ prepareSessionCreation });
     try {
       await service.sendConversationCommandV4({
         workspacePath,
@@ -1184,18 +1208,32 @@ describe("zcodeAgentService v4 conversation channel", () => {
         },
       });
       expect(prepareSessionCreation).toHaveBeenCalledWith(
-        expect.objectContaining({ projectId: null, sessionId: expect.any(String) }),
+        expect.objectContaining({ projectId: null }),
       );
+      expect(readRequests(logPath).find((entry) => entry.method === "v4/command")?.params)
+        .toMatchObject({ payload: { sessionId: "reserved-legacy-create" } });
     } finally {
       await service.disposeAllAndWait();
     }
   });
 
   it("reserves project ownership before create wire and passes only directories to CLI", async () => {
+    // 修复依据：上游 v3.17.2 起 sessionId 预留在 prepareSessionCreation 返回值中分配并
+    // 记住（同一 commandId 重放必须幂等返回同一 ID），不再通过入参传入。
+    const reservedByCommand = new Map<string, string>();
     const prepareSessionCreation = vi.fn(
-      async (_target: { workspacePath: string; sessionId: string; projectId: string | null }) => [
-        "/extra",
-      ],
+      async (target: {
+        workspacePath: string;
+        sessionId?: string;
+        projectId: string | null;
+        creationCommand?: { clientId: string; commandId: string };
+      }) => {
+        const commandId = target.creationCommand?.commandId ?? "";
+        if (!reservedByCommand.has(commandId)) {
+          reservedByCommand.set(commandId, `reserved-${commandId}`);
+        }
+        return { sessionId: reservedByCommand.get(commandId)!, additionalDirectories: ["/extra"] };
+      },
     );
     const { service, workspacePath, logPath } = setupService({ prepareSessionCreation });
     const envelope = {
@@ -1215,13 +1253,12 @@ describe("zcodeAgentService v4 conversation channel", () => {
       expect(target).toMatchObject({
         workspacePath,
         projectId: "project-a",
-        sessionId: expect.any(String),
       });
       expect(creates[0]?.params.payload).toMatchObject({
-        sessionId: target.sessionId,
+        sessionId: "reserved-project-create",
         additionalDirectories: ["/extra"],
       });
-      expect(creates[1]?.params.payload.sessionId).toBe(target.sessionId);
+      expect(creates[1]?.params.payload.sessionId).toBe("reserved-project-create");
       expect(creates[0]?.params.payload).not.toHaveProperty("projectId");
       prepareSessionCreation.mockRejectedValueOnce(new Error("database unavailable"));
       await expect(
@@ -1847,6 +1884,9 @@ describe("zcodeAgentService v4 conversation channel", () => {
         type: "editUserQuery",
         baseRevision: 12,
         baseLogEpoch: "epoch-mobile",
+        // 修复依据：上游 v3.17.2 起 Host 在信封顶层按可信连接 clientMode
+        // 注入 inputOrigin（web-remote-replayable → mobile）。
+        inputOrigin: "mobile",
         payload: {
           target: { rowId: 18, entityId: "msg-mobile-user" },
           newText: "mobile edited query",

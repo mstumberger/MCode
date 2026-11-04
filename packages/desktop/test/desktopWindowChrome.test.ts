@@ -20,6 +20,10 @@ const electronMocks = vi.hoisted(() => {
       on: vi.fn(),
       once: vi.fn(),
       send: vi.fn(),
+      // 修复依据：上游 v3.17.2 在 createBrowserWindow 为主窗口注册
+      // webContents.setWindowOpenHandler（window.open 统一改走 Browser 路由/外链策略），
+      // mock 缺少该方法会让 createBrowserWindow 直接抛 TypeError。
+      setWindowOpenHandler: vi.fn(),
       setZoomFactor: vi.fn(),
     },
   };
@@ -34,7 +38,9 @@ const electronMocks = vi.hoisted(() => {
     menuBuildFromTemplate: vi.fn(() => ({ popup: vi.fn() })),
     nativeImageCreateFromPath: vi.fn(() => ({ isEmpty: () => true })),
     shellOpenExternal: vi.fn(() => Promise.resolve()),
-    screenGetPrimaryDisplay: vi.fn(() => ({ workAreaSize: { width: 1920, height: 1040 } })),
+    screenGetPrimaryDisplay: vi.fn(() => ({
+      workAreaSize: { width: 1920, height: 1040 },
+    })),
     shouldUseDarkColors: true,
   };
 });
@@ -98,6 +104,7 @@ describe("desktopWindowChrome", () => {
     electronMocks.browserWindowInstance.webContents.on.mockClear();
     electronMocks.browserWindowInstance.webContents.once.mockClear();
     electronMocks.browserWindowInstance.webContents.send.mockClear();
+    electronMocks.browserWindowInstance.webContents.setWindowOpenHandler.mockClear();
     electronMocks.browserWindowInstance.webContents.setZoomFactor.mockClear();
     electronMocks.loadWindow.mockReset();
     electronMocks.menuBuildFromTemplate.mockClear();
@@ -121,6 +128,13 @@ describe("desktopWindowChrome", () => {
     )?.[1];
     expect(handler).toBeTypeOf("function");
     return handler as (...args: unknown[]) => void;
+  }
+
+  // 修复依据：上游 v3.17.2 的 attachEmbeddedBrowserWindowOpenHandler 会读取
+  // guestWebContents.session 注册 will-download 下载监听，并 once("destroyed") 清理；
+  // guest mock 需要补齐 session 与 once，否则 did-attach-webview 直接抛 TypeError。
+  function createGuestDownloadSessionMock() {
+    return { on: vi.fn(), removeListener: vi.fn() };
   }
 
   it("creates the desktop main window with the documented minimum size", async () => {
@@ -147,7 +161,9 @@ describe("desktopWindowChrome", () => {
     // CR-01 回归护栏：dev 模式主窗口图标是内存中的 NativeImage（叠加了 DEV 角标），
     // createBrowserWindow 必须把它原样透传给 BrowserWindow 的 icon，而不是只接受路径字符串。
     const { createBrowserWindow } = await import("../src/main/desktopWindowChrome.js");
-    const badgeIcon = { isEmpty: () => false } as unknown as Electron.NativeImage;
+    const badgeIcon = {
+      isEmpty: () => false,
+    } as unknown as Electron.NativeImage;
 
     createBrowserWindow({
       iconPath: badgeIcon,
@@ -296,7 +312,9 @@ describe("desktopWindowChrome", () => {
     // browser-use guest 和 GPU 在窗口后台时持续跑帧。截图期间由 main 的 activity lease 临时唤醒。
     expect(electronMocks.browserWindowConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
-        webPreferences: expect.not.objectContaining({ backgroundThrottling: false }),
+        webPreferences: expect.not.objectContaining({
+          backgroundThrottling: false,
+        }),
       }),
     );
   });
@@ -498,7 +516,9 @@ describe("desktopWindowChrome", () => {
     });
     expect(electronMocks.browserWindowInstance.webContents.send).toHaveBeenCalledWith(
       PlatformChannels.WindowControlsOverlayChanged,
-      { leftPaddingPx: 79 },
+      {
+        leftPaddingPx: 79,
+      },
     );
   });
 
@@ -540,6 +560,8 @@ describe("desktopWindowChrome", () => {
     );
     const guest = {
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       getURL: vi.fn(() => "about:blank"),
       setWindowOpenHandler: vi.fn(),
     };
@@ -570,6 +592,8 @@ describe("desktopWindowChrome", () => {
 
     const guestWebContents = {
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     const didAttach = getWebContentsHandler("did-attach-webview");
@@ -607,6 +631,8 @@ describe("desktopWindowChrome", () => {
     const guestWebContents = {
       getURL: vi.fn(() => "https://www.sandbox.paypal.com/checkoutnow?token=abc"),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -647,6 +673,8 @@ describe("desktopWindowChrome", () => {
     const guestWebContents = {
       getURL: vi.fn(() => "https://acs.bank.example/challenge"),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -675,6 +703,8 @@ describe("desktopWindowChrome", () => {
 
     const guestWebContents = {
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -750,6 +780,8 @@ describe("desktopWindowChrome", () => {
 
     const guestWebContents = {
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -783,6 +815,8 @@ describe("desktopWindowChrome", () => {
     const guestWebContents = {
       getURL: vi.fn(() => "https://zcode.z.ai/coding-plan?provider=zai&embedded=app"),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -811,6 +845,8 @@ describe("desktopWindowChrome", () => {
     const guestWebContents = {
       getURL: vi.fn(() => "https://zcode.z.ai/coding-plan?provider=zai&embedded=app"),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -842,6 +878,8 @@ describe("desktopWindowChrome", () => {
     const guestWebContents = {
       getURL: vi.fn(() => "https://zcode.z.ai/coding-plan?provider=zai&embedded=app"),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -872,6 +910,8 @@ describe("desktopWindowChrome", () => {
     const guestWebContents = {
       getURL: vi.fn(() => "https://zcode.z.ai/coding-plan?provider=zai&embedded=app"),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -900,6 +940,8 @@ describe("desktopWindowChrome", () => {
     const guestWebContents = {
       getURL: vi.fn(() => "https://www.sandbox.paypal.com/pay/billing?token=BA-123"),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -932,6 +974,8 @@ describe("desktopWindowChrome", () => {
     const guestWebContents = {
       getURL: vi.fn(() => "https://www.sandbox.paypal.com/pay/billing?token=BA-123"),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -967,6 +1011,8 @@ describe("desktopWindowChrome", () => {
       getURL: vi.fn(() => "https://zcode.z.ai/coding-plan?provider=zai&embedded=app"),
       loadURL: vi.fn(() => Promise.resolve()),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -1003,6 +1049,8 @@ describe("desktopWindowChrome", () => {
       getURL: vi.fn(() => "https://www.sandbox.paypal.com/agreements/approve"),
       loadURL: vi.fn(() => Promise.resolve()),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);
@@ -1039,6 +1087,8 @@ describe("desktopWindowChrome", () => {
       getURL: vi.fn(() => "https://zcode.z.ai/coding-plan?provider=zai&embedded=app"),
       loadURL: vi.fn(() => Promise.resolve()),
       on: vi.fn(),
+      once: vi.fn(),
+      session: createGuestDownloadSessionMock(),
       setWindowOpenHandler: vi.fn(),
     };
     getWebContentsHandler("did-attach-webview")({}, guestWebContents);

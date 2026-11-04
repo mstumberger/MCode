@@ -27,6 +27,12 @@ const readline = require('node:readline');
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
+  // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商；
+  // fake 必须应答，否则用例停在 30s 超时。
+  if (request.method === 'runtime/capabilities' && request.id !== undefined) {
+    send({ id: request.id, result: {} });
+    return;
+  }
   if (request.method !== 'session/list') return;
   const sample = ${JSON.stringify(sample)};
   for (const extra of [{ command: 'secret' }, { cwd: '/secret' }, { sampleCount: 21 }])

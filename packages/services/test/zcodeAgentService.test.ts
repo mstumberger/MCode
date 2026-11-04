@@ -76,6 +76,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "session/subscribe" && msg.id !== undefined) {
       subscribeCount += 1;
       if (subscribeCount === 1) {
@@ -114,6 +120,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "session/subscribe" && msg.id !== undefined) {
       send({
         id: msg.id,
@@ -158,6 +170,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method !== "session/subscribe" || msg.id === undefined) continue;
     const sessionId = msg.params.sessionId;
     send({ id: msg.id, result: { sessionId, eventSeq: 0, events: [] } });
@@ -212,6 +230,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method !== "session/subscribe" || msg.id === undefined) continue;
     const sessionId = msg.params.sessionId;
     send({ id: msg.id, result: { sessionId, eventSeq: 0, events: [] } });
@@ -261,6 +285,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "session/subscribe" && msg.id !== undefined) {
       send({
         id: msg.id,
@@ -369,6 +399,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "session/create" && msg.id !== undefined) {
       record(msg);
       pendingCreate = msg;
@@ -505,6 +541,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "session/create" && msg.id !== undefined) {
       // Worker 进程已经自持 Registry，runtime preferences 在 session 创建时物化。
       pendingCreate = msg;
@@ -585,6 +627,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "session/compact" && msg.id !== undefined) {
       setTimeout(() => {
         send({
@@ -678,6 +726,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "session/create" && msg.id !== undefined) {
       const rejectedKeys = [];
       if (Object.prototype.hasOwnProperty.call(msg.params, "persistence")) {
@@ -728,6 +782,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.id === "binding-check-1" && (msg.result || msg.error)) {
       fs.writeFileSync(logPath, JSON.stringify(msg));
     }
@@ -751,6 +811,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "plugins/list" && msg.id !== undefined) {
       if (shouldHang) continue;
       send({
@@ -792,6 +858,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "mcp/list" && msg.id !== undefined) {
       if (shouldHang) continue;
       send({
@@ -824,6 +896,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "mcp/list" && msg.id !== undefined) {
       send({
         id: msg.id,
@@ -856,6 +934,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "mcp/list" && msg.id !== undefined) {
       send({
         id: msg.id,
@@ -888,6 +972,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "mcp/list" && msg.id !== undefined) {
       send({
         id: msg.id,
@@ -920,6 +1010,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "mcp/list" && msg.id !== undefined) {
       if (msg.params.mcpServers !== undefined) {
         send({
@@ -965,6 +1061,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "mcp/list" && msg.id !== undefined) {
       if (msg.params.mode !== undefined) {
         send({
@@ -1014,6 +1116,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.id === undefined || !msg.method) continue;
     if (blocked) continue;
     if (msg.method === "mcp/list") {
@@ -1040,6 +1148,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "plugins/list" && msg.id !== undefined) {
       send({
         id: msg.id,
@@ -1079,6 +1193,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "plugins/update" && msg.id !== undefined) {
       send({
         id: msg.id,
@@ -1108,6 +1228,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "plugins/restoreBuiltin" && msg.id !== undefined) {
       send({
         id: msg.id,
@@ -1138,6 +1264,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
+    // 修复依据：上游 v3.17.2 起 client 启动先发 runtime/capabilities 协商（含
+    // sessionDirectorySource hostCapabilities）；fake 必须应答，否则用例停在 30s 超时。
+    if (msg.method === "runtime/capabilities" && msg.id !== undefined) {
+      send({ id: msg.id, result: {} });
+      continue;
+    }
     if (msg.method === "workspace/updateModelIoPreferences" && msg.id !== undefined) {
       fs.appendFileSync(logPath + ".model-io", JSON.stringify({
         method: msg.method,
@@ -1553,7 +1685,12 @@ describe("createZCodeAgentService", () => {
     createdDirs.push(workspacePath);
     const commandResolver = vi.fn(() => ({
       command: process.execPath,
-      args: ["-e", "setInterval(() => {}, 1000);"],
+      // 修复依据：上游 v3.17.2 起 initialize 返回前会完成 runtime/capabilities 握手；
+      // 纯空转进程不再满足启动合同（30s 超时），最小进程需应答能力查询。
+      args: [
+        "-e",
+        "let b='';process.stdin.on('data',c=>{b+=c;let i;while((i=b.indexOf('\\n'))>=0){const l=b.slice(0,i);b=b.slice(i+1);if(!l.trim())continue;let m;try{m=JSON.parse(l)}catch{continue}if(m.method==='runtime/capabilities'&&m.id!==undefined)process.stdout.write(JSON.stringify({id:m.id,result:{}})+'\\n');}});setInterval(()=>{},1000);",
+      ],
     }));
     const processLifecycleReporter = {
       onSpawn: vi.fn(),
@@ -1674,7 +1811,12 @@ describe("createZCodeAgentService", () => {
     const scriptPath = join(workspacePath, "agent.cjs");
     const logPath = join(workspacePath, "protocol.log");
     writeFileSync(scriptPath, SHELL_SETTINGS_SNAPSHOT_FAKE_AGENT);
-    const prepareSessionCreation = vi.fn(async () => ["/extra"]);
+    // 修复依据：上游 v3.17.2 起 session/create 的 sessionId 由 prepareSessionCreation
+    // 钩子「返回值」分配（入参不再携带），目录同样从返回值读取。
+    const prepareSessionCreation = vi.fn(async () => ({
+      sessionId: "assigned-native-session",
+      additionalDirectories: ["/extra"],
+    }));
     const service = createReadyZCodeAgentService({
       prepareSessionCreation,
       commandResolver: () => ({ command: process.execPath, args: [scriptPath, logPath] }),
@@ -1687,9 +1829,9 @@ describe("createZCodeAgentService", () => {
         .map((line) => JSON.parse(line))
         .find((entry) => entry.method === "session/create");
       expect(prepareSessionCreation).toHaveBeenCalledWith(
-        expect.objectContaining({ projectId: "p", sessionId: create.params.sessionId }),
+        expect.objectContaining({ projectId: "p" }),
       );
-      expect(create.params.sessionId).toBeTypeOf("string");
+      expect(create.params.sessionId).toBe("assigned-native-session");
       expect(create.params.additionalDirectories).toEqual(["/extra"]);
       expect(create.params).not.toHaveProperty("projectId");
       prepareSessionCreation.mockRejectedValueOnce(new Error("storage failed"));

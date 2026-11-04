@@ -1357,9 +1357,12 @@ describe("ZCode legacy task compat task index", () => {
       provider: "glm",
     });
 
+    // 修复依据：上游 v3.17.2 disposeWorkspace 增加 releasePreparation 参数——
+    // 释放 workspace 准备时走共享 runtime 的会话级收口路径，不再整进程回收。
     expect(agent.disposeWorkspace).toHaveBeenCalledWith({
       workspacePath: "/repo",
       workspaceIdentity: "remote:wsl:ubuntu:/repo",
+      releasePreparation: true,
     });
     expect(agent.disposeAll).not.toHaveBeenCalled();
   });

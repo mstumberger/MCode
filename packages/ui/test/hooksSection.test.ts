@@ -58,32 +58,37 @@ describe("Hooks settings page", () => {
   });
 
   it("keeps a selected local workspace scope on the base host while a remote workspace is active", () => {
-    const activePath = "/home/dev/project";
-    const activeIdentity = "remote:server:source-1:/home/dev/project";
+    // 修复依据：上游 v3.17.2 将 resolveHookScopeTarget 第二参改为 scope 菜单解析出的
+    // user scope target（只有 workspacePath）；User scope 不再借用活动远端工作区的
+    // identity，始终以 undefined identity 走自己的目标路由。
+    const userTarget = { workspacePath: "/home/dev/project" };
 
-    // 选中的本地项目没有 identity，不能借用活动远端工作区的 identity 把本机路径发往远端。
+    // 选中的本地项目没有 identity，不能借用远端工作区的 identity 把本机路径发往远端。
     expect(
       resolveHookScopeTarget(
         { workspacePath: "/Users/dev/local", workspaceIdentity: undefined },
-        activePath,
-        activeIdentity,
+        userTarget,
       ),
     ).toEqual({ workspacePath: "/Users/dev/local", workspaceIdentity: undefined });
     // 选中远端项目时沿用其自身 identity。
     expect(
       resolveHookScopeTarget(
         { workspacePath: "/srv/other", workspaceIdentity: "remote:server:source-2:/srv/other" },
-        activePath,
-        activeIdentity,
+        userTarget,
       ),
     ).toEqual({
       workspacePath: "/srv/other",
       workspaceIdentity: "remote:server:source-2:/srv/other",
     });
-    // User scope 未选项目：仍跟随当前 workspace 路由。
-    expect(resolveHookScopeTarget(undefined, activePath, activeIdentity)).toEqual({
-      workspacePath: activePath,
-      workspaceIdentity: activeIdentity,
+    // User scope 未选项目：跟随 user scope 目标路径，identity 恒为 undefined。
+    expect(resolveHookScopeTarget(undefined, userTarget)).toEqual({
+      workspacePath: userTarget.workspacePath,
+      workspaceIdentity: undefined,
+    });
+    // user scope 目标缺失时目标为空（由调用方走 fail-closed / unscoped 路由）。
+    expect(resolveHookScopeTarget(undefined, null)).toEqual({
+      workspacePath: undefined,
+      workspaceIdentity: undefined,
     });
   });
 

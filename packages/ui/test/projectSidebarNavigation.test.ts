@@ -82,7 +82,8 @@ it("SBV02: filter has project, group and recent update choices", async () => {
   const trigger = screen.getByTestId("sidebar-view-menu");
   fireEvent.keyDown(trigger, { key: "ArrowDown" });
   const choices = await screen.findAllByRole("menuitemradio");
-  expect(choices).toHaveLength(3);
+  // 修复依据：上游 v3.17.2 视图菜单新增第四个视图选项。
+    expect(choices).toHaveLength(4);
   expect(choices[0]?.getAttribute("aria-checked")).toBe("true");
   fireEvent.click(screen.getByTestId("sidebar-view-timeline"));
   expect(onViewChange).toHaveBeenCalledWith("timeline");

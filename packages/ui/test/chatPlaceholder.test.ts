@@ -24,13 +24,14 @@ describe("resolveChatPlaceholderKey", () => {
     ).toBe("chat.placeholder.newTaskMobile");
   });
 
-  it("returns newTask while first turn is processing", () => {
+  it("returns followUpQueue while first turn is processing", () => {
+    // 修复依据：上游 v3.17.2 起处理态统一返回 followUpQueue，首发已提交但投影未到时不闪回新任务提示。
     expect(
       resolveChatPlaceholderKey({
         hasHistoryMessages: false,
         isTaskProcessing: true,
       }),
-    ).toBe("chat.placeholder.newTask");
+    ).toBe("chat.placeholder.followUpQueue");
   });
 
   it("returns followUpAsk when conversation is idle", () => {

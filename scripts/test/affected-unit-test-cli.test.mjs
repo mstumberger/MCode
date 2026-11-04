@@ -9,7 +9,6 @@ import test from "node:test";
 
 const exec = promisify(execFile);
 const entry = fileURLToPath(new URL("../run-affected-unit-tests.mjs", import.meta.url));
-const legacyEntry = fileURLToPath(new URL("../run-lint-staged-vitest.mjs", import.meta.url));
 const zero = "0".repeat(40);
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "affected-official-"));
@@ -236,23 +235,6 @@ test("实际选中测试失败返回 1，无关测试不执行", async (t) => {
   const result = await invoke();
   assert.equal(result.code, 1, result.stdout + result.stderr);
   assert.ok(!result.stdout.includes("UNSELECTED_TEST_EXECUTED"));
-});
-
-test("lint-staged manifest 使用官方 related，保留用户 manifest", async (t) => {
-  const { root, write, invoke } = await fixture(t);
-  await write("source.mjs", "export const value = 2;");
-  await write(
-    "user-manifest.json",
-    JSON.stringify({ mode: "related", files: ["source.mjs", "source.mjs"] }),
-  );
-  const result = await invoke(
-    ["related", "--files-manifest", "user-manifest.json"],
-    {},
-    legacyEntry,
-  );
-  assert.equal(result.code, 0, result.stdout + result.stderr);
-  assert.equal(await readFile(join(root, "selected"), "utf8"), "yes");
-  await readFile(join(root, "user-manifest.json"));
 });
 
 test("根配置的公共 setup 通过官方 trigger 选中整个套件并成功跳过", async () => {
